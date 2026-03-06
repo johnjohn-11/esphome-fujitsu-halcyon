@@ -1,267 +1,537 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
+#include "esphome-fujitsu-halcyon.h"
 
-from esphome.components import (
-    binary_sensor,
-    button,
-    climate,
-    number,
-    sensor,
-    switch,
-    text_sensor,
-    uart
-)
+#include <array>
 
-try:
-    from esphome.components import tzsp
-except ImportError:
-    TZSP_AVAILABLE = False
-else:
-    TZSP_AVAILABLE = True
+#include <esphome/core/helpers.h>
+#include <esphome/core/version.h>
 
-from esphome.const import (
-    CONF_ID,
-    CONF_DISABLED_BY_DEFAULT,
-    CONF_HUMIDITY_SENSOR,
-    CONF_INTERNAL,
-    CONF_MODE,
-    CONF_NAME,
-    DEVICE_CLASS_TEMPERATURE,
-    DEVICE_CLASS_PROBLEM,
-    ENTITY_CATEGORY_CONFIG,
-    ENTITY_CATEGORY_DIAGNOSTIC,
-    STATE_CLASS_MEASUREMENT,
-    UNIT_CELSIUS
-)
+namespace esphome::fujitsu_general_airstage_h_controller {
 
-from esphome.types import ConfigType
+static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
 
-CODEOWNERS = ["@Omniflux"]
-DEPENDENCIES = ["uart"]
+constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" };
 
-def AUTO_LOAD(config: ConfigType) -> list[str]:
-    load = ["binary_sensor", "button", "climate", "number", "sensor", "switch", "text_sensor"]
+void FujitsuHalcyonController::setup() {
+    this->controller = new fujitsu_general::airstage::h::Controller(
+        static_cast<uart::IDFUARTComponent*>(this->parent_)->get_hw_serial_number(),
+        this->controller_address_,
+        {
+            .Config = [this](const fujitsu_general::airstage::h::Config& data){ this->update_from_device(data); },
+            .Error  = [this](const fujitsu_general::airstage::h::Packet& data){ this->update_from_device(data); },
+            .Function = [this](const fujitsu_general::airstage::h::Function& data){ this->update_from_device(data); },
+            .ControllerConfig = [this](const uint8_t address, const fujitsu_general::airstage::h::Config& data){ this->update_from_controller(address, data); },
+            .InitializationStage = [this](const fujitsu_general::airstage::h::InitializationStageEnum stage){
+                this->initialization_sensor->publish_state(str_sprintf("(%d/%d)", static_cast<int>(stage), static_cast<int>(fujitsu_general::airstage::h::InitializationStageEnum::Complete)));
+                this->on_initialization_stage(stage);
+            },
+            .ReadBytes  = [this](uint8_t *buf, size_t length){
+                this->read_array(buf, length);
+                this->log_buffer("RX", buf, length);
+            },
+            .WriteBytes = [this](const uint8_t *buf, size_t length){
+                this->write_array(buf, length);
+                this->log_buffer("TX", buf, length);
+            }
+        },
+        *static_cast<uart::IDFUARTComponent*>(this->parent_)->get_uart_event_queue()
+    );
 
-    if TZSP_AVAILABLE and config.get(tzsp.CONF_TZSP):
-        load += ["tzsp"]
-
-    return load
-
-CONF_CONTROLLER_ADDRESS = "controller_address"
-CONF_TEMPERATURE_CONTROLLER_ADDRESS = "temperature_controller_address"
-CONF_TEMPERATURE_SENSOR = "temperature_sensor_id"
-CONF_USE_SENSOR = "use_sensor"
-CONF_IGNORE_LOCK = "ignore_lock"
-
-CONF_STANDBY_MODE = "standby_mode"
-CONF_ERROR_CODE = "error_code"
-CONF_ERROR_STATE = "error_state"
-CONF_INITIALIZATION_STAGE = "initialization_stage"
-CONF_REMOTE_SENSOR = "remote_sensor"
-CONF_ADVANCE_VERTICAL_LOUVER = "advance_vertical_louver"
-CONF_ADVANCE_HORIZONTAL_LOUVER = "advance_horizontal_louver"
-CONF_RESET_FILTER_TIMER = "reset_filter_timer"
-CONF_FILTER_TIMER_EXPIRED = "filter_timer_expired"
-CONF_REINITIALIZE = "reinitialize"
-CONF_CONNECTED = "connected"
-
-CONF_FUNCTION = "function"
-CONF_FUNCTION_VALUE = "function_value"
-CONF_FUNCTION_UNIT = "function_unit"
-CONF_GET_FUNCTION = "get_function"
-CONF_SET_FUNCTION = "set_function"
-
-BinarySensor = cg.esphome_ns.class_("BinarySensor", cg.Component, binary_sensor.BinarySensor)
-TextSensor = cg.esphome_ns.class_("TextSensor", cg.Component, text_sensor.TextSensor)
-Sensor = cg.esphome_ns.class_("Sensor", cg.Component, sensor.Sensor)
-
-custom_ns = cg.esphome_ns.namespace("custom")
-CustomButton = custom_ns.class_("CustomButton", cg.Component, button.Button)
-CustomNumber = custom_ns.class_("CustomNumber", cg.Component, number.Number)
-CustomSwitch = custom_ns.class_("CustomSwitch", cg.Component, switch.Switch)
-fujitsu_general_airstage_h_controller_ns = cg.esphome_ns.namespace("fujitsu_general_airstage_h_controller")
-FujitsuHalcyonController = fujitsu_general_airstage_h_controller_ns.class_("FujitsuHalcyonController", cg.Component, climate.Climate, uart.UARTDevice)
-
-CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
-    {
-        cv.Optional(CONF_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
-        cv.Optional(CONF_TEMPERATURE_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
-        cv.Optional(CONF_IGNORE_LOCK, default=False): cv.boolean,
-        cv.Optional(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
-        cv.Optional(CONF_HUMIDITY_SENSOR): cv.use_id(sensor.Sensor),
-        cv.Optional(CONF_FUNCTION, default={CONF_NAME: "Function", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_FUNCTION_VALUE, default={CONF_NAME: "Function Value", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_FUNCTION_UNIT, default={CONF_NAME: "Function Unit", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function_Read"}): button.button_schema(
-            CustomButton,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_SET_FUNCTION, default={CONF_NAME: "Function_Write", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
-            CustomButton,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_OFF"
-        ),
-        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor", CONF_INTERNAL: True}): sensor.sensor_schema(
-            Sensor,
-            unit_of_measurement=UNIT_CELSIUS,
-            device_class=DEVICE_CLASS_TEMPERATURE,
-            state_class=STATE_CLASS_MEASUREMENT,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        ),
-        cv.Optional(CONF_STANDBY_MODE, default={CONF_NAME: "Standby Mode"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        ),
-        cv.Optional(CONF_ERROR_STATE, default={CONF_NAME: "Error"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            device_class=DEVICE_CLASS_PROBLEM
-        ),
-        cv.Optional(CONF_ERROR_CODE, default={CONF_NAME: "Error Code"}): text_sensor.text_sensor_schema(
-            TextSensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        ),
-        cv.Optional(CONF_INITIALIZATION_STAGE, default={CONF_NAME: "Initialization Stage"}): text_sensor.text_sensor_schema(
-            TextSensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        ),
-        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton
-        ),
-        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton
-        ),
-        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton,
-            entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired", CONF_INTERNAL: True}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-            device_class=DEVICE_CLASS_PROBLEM
-        ),
-        cv.Optional(CONF_REINITIALIZE, default={CONF_NAME: "Reinitialize", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-        ),
-        cv.Optional(CONF_CONNECTED, default={CONF_NAME: "Connected"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
-            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        )
+    if (!this->controller->start()) {
+        ESP_LOGE(TAG, "Failed to start controller");
+        this->mark_failed();
+        return;
     }
-).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
 
-if TZSP_AVAILABLE:
-    CONFIG_SCHEMA = CONFIG_SCHEMA.extend(tzsp.TZSP_SENDER_SCHEMA)
+    this->connected_sensor->publish_state(false);
 
-FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
-    "fujitsu_halcyon",
-    require_tx=True,
-    require_rx=True,
-    baud_rate=500,
-    data_bits=8,
-    parity="EVEN",
-    stop_bits=1
-)
+    // Use specified sensor for this components reported temperature
+    if (this->temperature_sensor_ != nullptr) {
+        // Temperature sensor is in Fahrenheit, but need Celsius
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
+        const auto unit_of_measurement = this->temperature_sensor_->get_unit_of_measurement_ref();
+        if (unit_of_measurement[unit_of_measurement.size() - 1] == 'F')
+#else
+        if (this->temperature_sensor_->get_unit_of_measurement().ends_with("F"))
+#endif
+        {
+            this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
+                this->current_temperature = esphome::fahrenheit_to_celsius(state);
+                this->publish_state();
 
-async def to_code(config: ConfigType) -> None:
-    var = await climate.new_climate(config, await cg.get_variable(config[uart.CONF_UART_ID]), config[CONF_CONTROLLER_ADDRESS])
-    await cg.register_component(var, config)
-    await uart.register_uart_device(var, config)
+                // Send this temperature to the Fujitsu IU
+                this->controller->set_current_temperature(this->current_temperature);
+            });
 
-    if TZSP_AVAILABLE and config.get(tzsp.CONF_TZSP):
-        await tzsp.register_tzsp_sender(var, config)
-        cg.add_define("USE_TZSP")
+            this->current_temperature = esphome::fahrenheit_to_celsius(this->temperature_sensor_->state);
+        }
+        // Temperature sensor is in Celsius
+        else
+        {
+            this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
+                this->current_temperature = state;
+                this->publish_state();
 
-    uart.request_wake_loop_on_rx()
+                // Send this temperature to the Fujitsu IU
+                this->controller->set_current_temperature(state);
+            });
 
-    cg.add(var.set_temperature_controller_address(config[CONF_TEMPERATURE_CONTROLLER_ADDRESS]))
-    cg.add(var.set_ignore_lock(config[CONF_IGNORE_LOCK]))
+            this->current_temperature = this->temperature_sensor_->state;
+        }
+    }
 
-    varx = cg.Pvariable(config[CONF_STANDBY_MODE][CONF_ID], var.standby_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_STANDBY_MODE])
+    if (this->humidity_sensor_ != nullptr) {
+        this->humidity_sensor_->add_on_raw_state_callback([this](float state) {
+            this->current_humidity = state;
+            this->publish_state();
+        });
 
-    varx = cg.Pvariable(config[CONF_ERROR_STATE][CONF_ID], var.error_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_ERROR_STATE])
+        this->current_humidity = this->humidity_sensor_->state;
+    }
 
-    varx = cg.Pvariable(config[CONF_ERROR_CODE][CONF_ID], var.error_code_sensor)
-    await text_sensor.register_text_sensor(varx, config[CONF_ERROR_CODE])
+    // Use remote controllers sensor for this components reported temperature if other sensor is not configured
+    if (this->temperature_sensor_ == nullptr) {
+        this->remote_sensor->add_on_raw_state_callback([this](float temperature) {
+            this->current_temperature = temperature;
+            this->publish_state();
+        });
+    }
 
-    varx = cg.Pvariable(config[CONF_INITIALIZATION_STAGE][CONF_ID], var.initialization_sensor)
-    await text_sensor.register_text_sensor(varx, config[CONF_INITIALIZATION_STAGE])
+/*
+    // Not sure if should timeout, or wait forever.
+    // Not sure if getting stuck at can_proceed() causes boot failure count to increment
+    // which can be problematic later
+    this->set_timeout(10000, [this](){
+        if (!this->can_proceed()) {
+            ESP_LOGE(TAG, "Failed to initialize");
+            this->mark_failed();
+        }
+    });
+*/
+}
 
-    varx = cg.Pvariable(config[CONF_USE_SENSOR][CONF_ID], var.use_sensor_switch)
-    await switch.register_switch(varx, config[CONF_USE_SENSOR])
+void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage) {
+    using fujitsu_general::airstage::h::InitializationStageEnum;
 
-    varx = cg.Pvariable(config[CONF_GET_FUNCTION][CONF_ID], var.get_function)
-    await button.register_button(varx, config[CONF_GET_FUNCTION])
+    bool connected = (stage == InitializationStageEnum::Complete);
 
-    varx = cg.Pvariable(config[CONF_SET_FUNCTION][CONF_ID], var.set_function)
-    await button.register_button(varx, config[CONF_SET_FUNCTION])
+    // Update connected sensor
+    if (!this->connected_sensor->has_state() || connected != this->connected_sensor->state)
+        this->connected_sensor->publish_state(connected);
 
-    varx = cg.Pvariable(config[CONF_ADVANCE_VERTICAL_LOUVER][CONF_ID], var.advance_vertical_louver_button)
-    await button.register_button(varx, config[CONF_ADVANCE_VERTICAL_LOUVER])
+    if (!connected)
+        return;
 
-    varx = cg.Pvariable(config[CONF_ADVANCE_HORIZONTAL_LOUVER][CONF_ID], var.advance_horizontal_louver_button)
-    await button.register_button(varx, config[CONF_ADVANCE_HORIZONTAL_LOUVER])
+    // Expose feature dependent entities now that features are known,
+    // and force a state publish so HA discovers them even if ListEntities already ran
+    auto features = this->controller->get_features();
 
-    varx = cg.Pvariable(config[CONF_RESET_FILTER_TIMER][CONF_ID], var.reset_filter_button)
-    await button.register_button(varx, config[CONF_RESET_FILTER_TIMER])
+    if (features.SensorSwitching && this->temperature_sensor_ != nullptr) {
+        this->use_sensor_switch->set_internal(false);
+        this->use_sensor_switch->publish_state(this->use_sensor_switch->state);
+    }
 
-    varx = cg.Pvariable(config[CONF_FILTER_TIMER_EXPIRED][CONF_ID], var.filter_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_FILTER_TIMER_EXPIRED])
+    if (features.VerticalLouvers) {
+        this->advance_vertical_louver_button->set_internal(false);
+    }
 
-    varx = cg.Pvariable(config[CONF_REINITIALIZE][CONF_ID], var.reinitialize_button)
-    await button.register_button(varx, config[CONF_REINITIALIZE])
+    if (features.HorizontalLouvers) {
+        this->advance_horizontal_louver_button->set_internal(false);
+    }
 
-    varx = cg.Pvariable(config[CONF_CONNECTED][CONF_ID], var.connected_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_CONNECTED])
+    if (features.FilterTimer) {
+        this->filter_sensor->set_internal(false);
+        if (this->filter_sensor->has_state())
+            this->filter_sensor->publish_state(this->filter_sensor->state);
+        this->reset_filter_button->set_internal(false);
+    }
 
-    varx = cg.Pvariable(config[CONF_REMOTE_SENSOR][CONF_ID], var.remote_sensor)
-    await sensor.register_sensor(varx, config[CONF_REMOTE_SENSOR])
+    this->reinitialize_button->set_internal(false);
+}
 
-    varx = cg.Pvariable(config[CONF_FUNCTION][CONF_ID], var.function)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION],
-        min_value=0,
-        max_value=255,
-        step=1
-    )
+void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, size_t length) {
+    auto tbuf = std::vector<uint8_t>(buf, buf + length);
+    for (auto &b : tbuf)
+        b ^= 0xFF;
 
-    varx = cg.Pvariable(config[CONF_FUNCTION_VALUE][CONF_ID], var.function_value)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION_VALUE],
-        min_value=0,
-        max_value=255,
-        step=1
-    )
+#if defined(USE_TZSP)
+    this->tzsp_send(tbuf);
+#endif
 
-    varx = cg.Pvariable(config[CONF_FUNCTION_UNIT][CONF_ID], var.function_unit)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION_UNIT],
-        min_value=0,
-        max_value=15,
-        step=1
-    )
+    ESP_LOGD(TAG, "%s: %02hhX %02hhX %02hhX %02hhX %02hhX %02hhX %02hhX %02hhX", dir, tbuf[0], tbuf[1], tbuf[2], tbuf[3], tbuf[4], tbuf[5], tbuf[6], tbuf[7]);
+}
 
-    if CONF_TEMPERATURE_SENSOR in config:
-        cg.add(var.set_temperature_sensor(await cg.get_variable(config[CONF_TEMPERATURE_SENSOR])))
+void FujitsuHalcyonController::dump_config() {
+    LOG_CLIMATE("", "FujitsuHalcyonController", this);
+    ESP_LOGCONFIG(TAG, "  Controller Address: %u (%s)", this->controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->controller_address_), 0u, ControllerName.size() - 1)]);
+    ESP_LOGCONFIG(TAG, "  Remote Temperature Controller Address: %u (%s)", this->temperature_controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->temperature_controller_address_), 0u, ControllerName.size() - 1)]);
+    LOG_SENSOR("  ", "Remote Temperature Controller Sensor", this->remote_sensor);
+    LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
+    LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
+    ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
+    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor->state ? "ACTIVE" : "NORMAL");
 
-    if CONF_HUMIDITY_SENSOR in config:
-        cg.add(var.set_humidity_sensor(await cg.get_variable(config[CONF_HUMIDITY_SENSOR])))
+    if (this->controller->is_initialized()) {
+        auto features = this->controller->get_features();
+
+        ESP_LOGCONFIG(TAG, "  Additional Features:%s", features.FilterTimer || features.Maintenance || features.SensorSwitching ? "" : " NONE");
+        if (features.FilterTimer)
+            ESP_LOGCONFIG(TAG, "    - Filter Timer");
+        if (features.Maintenance)
+            ESP_LOGCONFIG(TAG, "    - Maintenance");
+        if (features.SensorSwitching)
+            ESP_LOGCONFIG(TAG, "    - Sensor Switching");
+    }
+
+    if (!this->filter_sensor->is_internal())
+        ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor->state ? "EXPIRED" : "OK");
+    if (!this->use_sensor_switch->is_internal())
+        ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch->state ? "YES" : "NO");
+
+#if defined(USE_TZSP)
+    LOG_TZSP("  ", this);
+#endif
+
+    this->check_uart_settings(
+        fujitsu_general::airstage::h::UARTConfig.baud_rate,
+        this->uart_stop_bits_to_uart_config_stop_bits(fujitsu_general::airstage::h::UARTConfig.stop_bits),
+        this->uart_parity_to_uart_config_parity(fujitsu_general::airstage::h::UARTConfig.parity),
+        this->uart_data_bits_to_uart_config_data_bits(fujitsu_general::airstage::h::UARTConfig.data_bits)
+    );
+
+    this->dump_traits_(TAG);
+}
+
+climate::ClimateTraits FujitsuHalcyonController::traits() {
+    using namespace climate;
+
+    auto features = this->controller->get_features();
+    auto traits = ClimateTraits();
+
+    // Target temperature / Setpoint
+    traits.set_visual_temperature_step(1);
+    traits.set_visual_min_temperature(fujitsu_general::airstage::h::MinSetpoint);
+    traits.set_visual_max_temperature(fujitsu_general::airstage::h::MaxSetpoint);
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
+    // Current temperature
+    if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
+        traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+
+    // Current humidity
+    if (this->humidity_sensor_ != nullptr)
+        traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_HUMIDITY);
+#else
+    // Current temperature
+    if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
+        traits.set_supports_current_temperature(true);
+
+    // Current humidity
+    traits.set_supports_current_humidity(this->humidity_sensor_ != nullptr);
+#endif
+
+    // Mode
+    if (features.Mode.Auto)
+        traits.add_supported_mode(ClimateMode::CLIMATE_MODE_HEAT_COOL);
+    if (features.Mode.Heat)
+        traits.add_supported_mode(ClimateMode::CLIMATE_MODE_HEAT);
+    if (features.Mode.Fan)
+        traits.add_supported_mode(ClimateMode::CLIMATE_MODE_FAN_ONLY);
+    if (features.Mode.Dry)
+        traits.add_supported_mode(ClimateMode::CLIMATE_MODE_DRY);
+    if (features.Mode.Cool)
+        traits.add_supported_mode(ClimateMode::CLIMATE_MODE_COOL);
+
+    // Fan mode / speed
+    if (features.FanSpeed.Quiet)
+        traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_QUIET);
+    if (features.FanSpeed.Low)
+        traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_LOW);
+    if (features.FanSpeed.Medium)
+        traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_MEDIUM);
+    if (features.FanSpeed.High)
+        traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_HIGH);
+    if (features.FanSpeed.Auto)
+        traits.add_supported_fan_mode(ClimateFanMode::CLIMATE_FAN_AUTO);
+
+    // Economy mode
+    if (features.EconomyMode)
+    {
+        traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_NONE);
+        traits.add_supported_preset(ClimatePreset::CLIMATE_PRESET_ECO);
+    }
+
+    // Swing
+    if (features.HorizontalLouvers || features.VerticalLouvers) {
+        traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_OFF);
+        if (features.HorizontalLouvers)
+            traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_HORIZONTAL);
+        if (features.VerticalLouvers)
+            traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_VERTICAL);
+        if (features.HorizontalLouvers && features.VerticalLouvers)
+            traits.add_supported_swing_mode(ClimateSwingMode::CLIMATE_SWING_BOTH);
+    }
+
+    return traits;
+}
+
+void FujitsuHalcyonController::control(const climate::ClimateCall& call) {
+    using climate::ClimateMode;
+    using climate::ClimatePreset;
+    using climate::ClimateSwingMode;
+
+    // Target temperature / Setpoint
+    if (call.get_target_temperature().has_value())
+        this->controller->set_setpoint(call.get_target_temperature().value(), this->ignore_lock_);
+
+    // Economy mode
+    if (call.get_preset().has_value())
+        this->controller->set_economy(call.get_preset().value() == ClimatePreset::CLIMATE_PRESET_ECO, this->ignore_lock_);
+
+    // Fan mode / speed
+    if (call.get_fan_mode().has_value())
+        this->controller->set_fan_speed(climate_fan_mode_to_fan_speed(call.get_fan_mode().value()), this->ignore_lock_);
+
+    // Mode / enabled
+    if (call.get_mode().has_value()) {
+        if (call.get_mode().value() == ClimateMode::CLIMATE_MODE_OFF)
+            this->controller->set_enabled(false, this->ignore_lock_);
+        else {
+            this->controller->set_enabled(true, this->ignore_lock_);
+            this->controller->set_mode(climate_mode_to_mode(call.get_mode().value()), this->ignore_lock_);
+        }
+    }
+
+    // Swing mode
+    if (call.get_swing_mode().has_value()) {
+        auto swing_mode = climate_swing_mode_to_swing_mode(call.get_swing_mode().value());
+        this->controller->set_horizontal_swing(swing_mode.first, this->ignore_lock_);
+        this->controller->set_vertical_swing(swing_mode.second, this->ignore_lock_);
+    }
+
+    this->publish_state();
+}
+
+void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Config& data) {
+    using climate::ClimateFanMode;
+    using climate::ClimateMode;
+    using climate::ClimatePreset;
+    using climate::ClimateSwingMode;
+
+    auto need_to_publish = false;
+
+    // Error sensor (binary)
+    if (!this->error_sensor->has_state())
+        this->error_sensor->publish_state(data.IndoorUnit.Error);
+
+    // Error sensor (text)
+    if (!this->error_code_sensor->has_state() && !data.IndoorUnit.Error)
+        this->error_code_sensor->publish_state("");
+
+    // Standby mode sensor
+    // This can indicate defrosting, performing oil recovery, waiting for other units to complete....
+    if (!this->standby_sensor->has_state() || data.IndoorUnit.StandbyMode != this->standby_sensor->state)
+        this->standby_sensor->publish_state(data.IndoorUnit.StandbyMode);
+
+    // Filter sensor
+    if (this->controller->get_features().FilterTimer && (!this->filter_sensor->has_state() || data.IndoorUnit.FilterTimerExpired != this->filter_sensor->state))
+        this->filter_sensor->publish_state(data.IndoorUnit.FilterTimerExpired);
+
+    // Target temperature / Setpoint
+    if (data.Setpoint != this->target_temperature) {
+        this->target_temperature = data.Setpoint;
+        need_to_publish = true;
+    }
+
+    // Economy mode
+    if (data.Economy != (this->preset == ClimatePreset::CLIMATE_PRESET_ECO)) {
+        this->preset = data.Economy ? ClimatePreset::CLIMATE_PRESET_ECO : ClimatePreset::CLIMATE_PRESET_NONE;
+        need_to_publish = true;
+    }
+
+    // Fan mode / speed
+    const auto fan_mode = fan_speed_to_climate_fan_mode(data.FanSpeed);
+    if (fan_mode != this->fan_mode) {
+        this->fan_mode = fan_mode;
+        need_to_publish = true;
+    }
+
+    // Mode / enabled
+    const auto mode = data.Enabled ? mode_to_climate_mode(data.Mode) : ClimateMode::CLIMATE_MODE_OFF;
+    if (mode != this->mode) {
+        this->mode = mode;
+        need_to_publish = true;
+    }
+
+    // Swing mode
+    const auto swing_mode = swing_mode_to_climate_swing_mode(data.SwingHorizontal, data.SwingVertical);
+    if (swing_mode != this->swing_mode) {
+        this->swing_mode = swing_mode;
+        need_to_publish = true;
+    }
+
+    if (need_to_publish)
+        this->publish_state();
+}
+
+void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Packet& data) {
+    using fujitsu_general::airstage::h::PacketTypeEnum;
+
+    // Error packet
+    if (data.Type == PacketTypeEnum::Error)
+    {
+        // Error sensor (boolean)
+        if (!data.Error.ErrorCode == this->error_sensor->state)
+            this->error_sensor->publish_state(data.Error.ErrorCode);
+
+        // Error sensor (text)
+        if (!data.Error.ErrorCode != this->error_code_sensor->get_raw_state().empty())
+        {
+            if (!data.Error.ErrorCode)
+                this->error_code_sensor->publish_state("");
+            else
+            {
+                std::array<uint8_t, 2> errorBytes = { data.SourceAddress, data.Error.ErrorCode };
+                this->error_code_sensor->publish_state(format_hex_pretty(errorBytes.data(), errorBytes.size(), ' '));
+            }
+        }
+    }
+}
+
+void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Function& data) {
+    this->function->publish_state(data.Function);
+    this->function_value->publish_state(data.Value);
+    this->function_unit->publish_state(data.Unit);
+}
+
+void FujitsuHalcyonController::update_from_controller(const uint8_t address, const fujitsu_general::airstage::h::Config& data) {
+    if (address == this->temperature_controller_address_ && data.Controller.Temperature) {
+        // Make remote controllers sensor visible on first data received
+        if (this->remote_sensor->is_internal())
+            this->remote_sensor->set_internal(false);
+
+        // Update remote controllers sensor component with remote controllers reported temperature
+        if (data.Controller.Temperature != this->remote_sensor->raw_state)
+            this->remote_sensor->publish_state(data.Controller.Temperature);
+    }
+}
+
+constexpr climate::ClimateMode FujitsuHalcyonController::mode_to_climate_mode(const fujitsu_general::airstage::h::ModeEnum mode) {
+    using climate::ClimateMode;
+    using FujitsuMode = fujitsu_general::airstage::h::ModeEnum;
+
+    switch (mode) {
+        case FujitsuMode::Fan:  return ClimateMode::CLIMATE_MODE_FAN_ONLY;
+        case FujitsuMode::Dry:  return ClimateMode::CLIMATE_MODE_DRY;
+        case FujitsuMode::Cool: return ClimateMode::CLIMATE_MODE_COOL;
+        case FujitsuMode::Heat: return ClimateMode::CLIMATE_MODE_HEAT;
+        case FujitsuMode::Auto: return ClimateMode::CLIMATE_MODE_HEAT_COOL;
+
+        // Should not get to this point
+        default: return ClimateMode::CLIMATE_MODE_FAN_ONLY;
+    }
+}
+
+constexpr climate::ClimateFanMode FujitsuHalcyonController::fan_speed_to_climate_fan_mode(const fujitsu_general::airstage::h::FanSpeedEnum fan_speed) {
+    using climate::ClimateFanMode;
+    using FujitsuFanMode = fujitsu_general::airstage::h::FanSpeedEnum;
+
+    switch (fan_speed) {
+        case FujitsuFanMode::Auto:   return ClimateFanMode::CLIMATE_FAN_AUTO;
+        case FujitsuFanMode::Quiet:  return ClimateFanMode::CLIMATE_FAN_QUIET;
+        case FujitsuFanMode::Low:    return ClimateFanMode::CLIMATE_FAN_LOW;
+        case FujitsuFanMode::Medium: return ClimateFanMode::CLIMATE_FAN_MEDIUM;
+        case FujitsuFanMode::High:   return ClimateFanMode::CLIMATE_FAN_HIGH;
+
+        // Should not get to this point
+        default: return ClimateFanMode::CLIMATE_FAN_AUTO;
+    }
+}
+
+constexpr climate::ClimateSwingMode FujitsuHalcyonController::swing_mode_to_climate_swing_mode(bool horizontal, bool vertical) {
+    using climate::ClimateSwingMode;
+
+    if (horizontal && vertical)
+        return ClimateSwingMode::CLIMATE_SWING_BOTH;
+    else if (horizontal)
+        return ClimateSwingMode::CLIMATE_SWING_HORIZONTAL;
+    else if (vertical)
+        return ClimateSwingMode::CLIMATE_SWING_VERTICAL;
+    else
+        return ClimateSwingMode::CLIMATE_SWING_OFF;
+}
+
+constexpr fujitsu_general::airstage::h::ModeEnum FujitsuHalcyonController::climate_mode_to_mode(climate::ClimateMode mode) {
+    using climate::ClimateMode;
+    using FujitsuMode = fujitsu_general::airstage::h::ModeEnum;
+
+    switch (mode) {
+        case ClimateMode::CLIMATE_MODE_HEAT_COOL: return FujitsuMode::Auto;
+        case ClimateMode::CLIMATE_MODE_COOL:      return FujitsuMode::Cool;
+        case ClimateMode::CLIMATE_MODE_HEAT:      return FujitsuMode::Heat;
+        case ClimateMode::CLIMATE_MODE_FAN_ONLY:  return FujitsuMode::Fan;
+        case ClimateMode::CLIMATE_MODE_DRY:       return FujitsuMode::Dry;
+
+        // Should not get to this point if traits is respected
+        default: return FujitsuMode::Fan;
+    }
+} 
+
+constexpr fujitsu_general::airstage::h::FanSpeedEnum FujitsuHalcyonController::climate_fan_mode_to_fan_speed(climate::ClimateFanMode fan_speed) {
+    using climate::ClimateFanMode;
+    using FujitsuFanMode = fujitsu_general::airstage::h::FanSpeedEnum;
+
+    switch (fan_speed) {
+        case ClimateFanMode::CLIMATE_FAN_AUTO:   return FujitsuFanMode::Auto;
+        case ClimateFanMode::CLIMATE_FAN_LOW:    return FujitsuFanMode::Low;
+        case ClimateFanMode::CLIMATE_FAN_MEDIUM: return FujitsuFanMode::Medium;
+        case ClimateFanMode::CLIMATE_FAN_HIGH:   return FujitsuFanMode::High;
+        case ClimateFanMode::CLIMATE_FAN_QUIET:  return FujitsuFanMode::Quiet;
+
+        // Should not get to this point if traits is respected
+        default: return FujitsuFanMode::Auto;
+    }
+}
+
+constexpr std::pair<bool, bool> FujitsuHalcyonController::climate_swing_mode_to_swing_mode(climate::ClimateSwingMode swing_mode) {
+    using climate::ClimateSwingMode;
+    using SwingMode = std::pair<bool, bool>;
+
+    switch (swing_mode) {
+        case ClimateSwingMode::CLIMATE_SWING_OFF:        return SwingMode(false, false);
+        case ClimateSwingMode::CLIMATE_SWING_BOTH:       return SwingMode(true, true);
+        case ClimateSwingMode::CLIMATE_SWING_VERTICAL:   return SwingMode(false, true);
+        case ClimateSwingMode::CLIMATE_SWING_HORIZONTAL: return SwingMode(true, false);
+
+        // Should not get to this point
+        default: return SwingMode(false, false);
+    }
+}
+
+constexpr uint8_t FujitsuHalcyonController::uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) {
+    switch (bits) {
+        case UART_DATA_5_BITS: return 5;
+        case UART_DATA_6_BITS: return 6;
+        case UART_DATA_7_BITS: return 7;
+
+        // ESPHome UART only supports 5, 6, 7, 8
+        default: return 8;
+    }
+}
+
+constexpr uint8_t FujitsuHalcyonController::uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) {
+    switch (bits) {
+        case UART_STOP_BITS_1: return 1;
+
+        // ESPHome UART only supports 1 and 2
+        default: return 2;
+    }
+}
+
+constexpr uart::UARTParityOptions FujitsuHalcyonController::uart_parity_to_uart_config_parity(uart_parity_t parity) {
+    switch (parity) {
+        case UART_PARITY_EVEN:  return uart::UART_CONFIG_PARITY_EVEN;
+        case UART_PARITY_ODD:   return uart::UART_CONFIG_PARITY_ODD;
+        default:                return uart::UART_CONFIG_PARITY_NONE;
+    }
+}
+
+}
