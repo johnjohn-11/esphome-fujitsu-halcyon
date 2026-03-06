@@ -6,7 +6,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <freertos/semphr.h>
+#include <freertos/portmacro.h>
 #include <driver/uart.h>
 
 #include "Packet.h"
@@ -151,7 +151,7 @@ class Controller {
         std::bitset<SettableFields::MAX> configuration_changes;
         std::queue<struct Function> function_queue;
         bool last_error_flag = false; // TODO handle errors for multiple indoor units...multiple errors per IU?
-        SemaphoreHandle_t mutex_ = nullptr;
+        portMUX_TYPE config_mux_ = portMUX_INITIALIZER_UNLOCKED;
 
         [[noreturn]] void uart_event_task();
         void uart_read_bytes(uint8_t *buf, size_t length);
