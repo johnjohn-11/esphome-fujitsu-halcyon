@@ -10,6 +10,14 @@ using esphome::esp_log_printf_;
 
 namespace fujitsu_general::airstage::h {
 
+namespace {
+    struct MutexGuard {
+        SemaphoreHandle_t m;
+        MutexGuard(SemaphoreHandle_t m) : m(m) { xSemaphoreTake(m, portMAX_DELAY); }
+        ~MutexGuard() { xSemaphoreGive(m); }
+    };
+}
+
 static const char* TAG = "fujitsu_general::airstage::h::Controller";
 
 bool Controller::start() {
@@ -63,6 +71,12 @@ bool Controller::start() {
     err = uart_set_rx_timeout(this->uart_num, UARTInterPacketSymbolSpacing);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set UART RX timeout: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    this->mutex_ = xSemaphoreCreateMutex();
+    if (this->mutex_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to create mutex");
         return false;
     }
 
@@ -187,11 +201,14 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
                     error_flag_changed = true;
 
                 this->last_error_flag = packet.Config.IndoorUnit.Error;
-                this->current_configuration = packet.Config;
+                {
+                    MutexGuard guard(this->mutex_);
+                    this->current_configuration = packet.Config;
 
-                // Include the state of these fields not returned from the Indoor Unit in the callback data
-                this->current_configuration.Controller.Temperature = this->changed_configuration.Controller.Temperature;
-                this->current_configuration.Controller.UseControllerSensor = this->changed_configuration.Controller.UseControllerSensor;
+                    // Include the state of these fields not returned from the Indoor Unit in the callback data
+                    this->current_configuration.Controller.Temperature = this->changed_configuration.Controller.Temperature;
+                    this->current_configuration.Controller.UseControllerSensor = this->changed_configuration.Controller.UseControllerSensor;
+                }
 
                 if (this->callbacks.Config)
                     deferred_callback = [this](){ this->callbacks.Config(this->current_configuration); };
@@ -240,80 +257,86 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
         tx_packet.TokenDestinationType = this->next_token_destination_type;
         tx_packet.TokenDestinationAddress = this->next_token_destination_type == AddressTypeEnum::Controller ? this->controller_address + 1 : 1;
 
-        if (this->initialization_stage == InitializationStageEnum::FeatureRequest)
-            tx_packet.Type = PacketTypeEnum::Features;
-        else if ((error_flag_changed && this->is_primary_controller()) ||
-                 (packet.Type == PacketTypeEnum::Error && !this->is_primary_controller()))
-            tx_packet.Type = PacketTypeEnum::Error;
-        else if (!this->function_queue.empty()) {
-            tx_packet.Type = PacketTypeEnum::Function;
-            tx_packet.Function = this->function_queue.front();
-            this->function_queue.pop();
+        Packet::Buffer b;
+        {
+            MutexGuard guard(this->mutex_);
+
+            if (this->initialization_stage == InitializationStageEnum::FeatureRequest)
+                tx_packet.Type = PacketTypeEnum::Features;
+            else if ((error_flag_changed && this->is_primary_controller()) ||
+                     (packet.Type == PacketTypeEnum::Error && !this->is_primary_controller()))
+                tx_packet.Type = PacketTypeEnum::Error;
+            else if (!this->function_queue.empty()) {
+                tx_packet.Type = PacketTypeEnum::Function;
+                tx_packet.Function = this->function_queue.front();
+                this->function_queue.pop();
+            }
+            else {
+                // First CONFIG packet sent from Fujitsu controller has write flag set, but we do not restore state at this time
+                tx_packet.Type = PacketTypeEnum::Config;
+                tx_packet.Config = this->current_configuration;
+                tx_packet.Config.Controller.Temperature = this->changed_configuration.Controller.Temperature;
+                tx_packet.Config.Controller.UseControllerSensor = this->changed_configuration.Controller.UseControllerSensor;
+
+                if (this->configuration_changes.any()) {
+                    tx_packet.Config.Controller.Write = true;
+
+                    // Overwrite fields received from Indoor Unit
+                    if (this->configuration_changes[SettableFields::Enabled])
+                        tx_packet.Config.Enabled = this->changed_configuration.Enabled;
+
+                    if (this->configuration_changes[SettableFields::Economy])
+                        tx_packet.Config.Economy = this->changed_configuration.Economy;
+
+                    if (this->configuration_changes[SettableFields::Setpoint])
+                        tx_packet.Config.Setpoint = this->changed_configuration.Setpoint;
+
+                    if (this->configuration_changes[SettableFields::TestRun])
+                        tx_packet.Config.TestRun = this->changed_configuration.TestRun;
+
+                    if (this->configuration_changes[SettableFields::Mode])
+                        tx_packet.Config.Mode = this->changed_configuration.Mode;
+
+                    if (this->configuration_changes[SettableFields::FanSpeed])
+                        tx_packet.Config.FanSpeed = this->changed_configuration.FanSpeed;
+
+                    if (this->configuration_changes[SettableFields::SwingVertical])
+                        tx_packet.Config.SwingVertical = this->changed_configuration.SwingVertical;
+
+                    if (this->configuration_changes[SettableFields::SwingHorizontal])
+                        tx_packet.Config.SwingHorizontal = this->changed_configuration.SwingHorizontal;
+
+                    // Set fields not returned from Indoor Unit
+                    if (this->configuration_changes[SettableFields::AdvanceVerticalLouver])
+                        tx_packet.Config.Controller.AdvanceVerticalLouver = this->changed_configuration.Controller.AdvanceVerticalLouver;
+
+                    if (this->configuration_changes[SettableFields::AdvanceHorizontalLouver])
+                        tx_packet.Config.Controller.AdvanceHorizontalLouver = this->changed_configuration.Controller.AdvanceHorizontalLouver;
+
+                    if (this->configuration_changes[SettableFields::ResetFilterTimer])
+                        tx_packet.Config.Controller.ResetFilterTimer = this->changed_configuration.Controller.ResetFilterTimer;
+
+                    if (this->configuration_changes[SettableFields::Maintenance])
+                        tx_packet.Config.Controller.Maintenance = this->changed_configuration.Controller.Maintenance;
+                }
+
+                this->configuration_changes.reset();
+
+                // Some fields need to be written clear in next tx packet
+                if (tx_packet.Config.Controller.ResetFilterTimer) {
+                    this->changed_configuration.Controller.ResetFilterTimer = false;
+                    this->configuration_changes[SettableFields::ResetFilterTimer] = true;
+                }
+
+                if (tx_packet.Config.Controller.Maintenance) {
+                    this->changed_configuration.Controller.Maintenance = false;
+                    this->configuration_changes[SettableFields::Maintenance] = true;
+                }
+            }
+
+            b = tx_packet.to_buffer();
         }
-        else {
-            // First CONFIG packet sent from Fujitsu controller has write flag set, but we do not restore state at this time
-            tx_packet.Type = PacketTypeEnum::Config;
-            tx_packet.Config = this->current_configuration;
-            tx_packet.Config.Controller.Temperature = this->changed_configuration.Controller.Temperature;
-            tx_packet.Config.Controller.UseControllerSensor = this->changed_configuration.Controller.UseControllerSensor;
 
-            if (this->configuration_changes.any()) {
-                tx_packet.Config.Controller.Write = true;
-
-                // Overwrite fields received from Indoor Unit
-                if (this->configuration_changes[SettableFields::Enabled])
-                    tx_packet.Config.Enabled = this->changed_configuration.Enabled;
-
-                if (this->configuration_changes[SettableFields::Economy])
-                    tx_packet.Config.Economy = this->changed_configuration.Economy;
-
-                if (this->configuration_changes[SettableFields::Setpoint])
-                    tx_packet.Config.Setpoint = this->changed_configuration.Setpoint;
-
-                if (this->configuration_changes[SettableFields::TestRun])
-                    tx_packet.Config.TestRun = this->changed_configuration.TestRun;
-
-                if (this->configuration_changes[SettableFields::Mode])
-                    tx_packet.Config.Mode = this->changed_configuration.Mode;
-
-                if (this->configuration_changes[SettableFields::FanSpeed])
-                    tx_packet.Config.FanSpeed = this->changed_configuration.FanSpeed;
-
-                if (this->configuration_changes[SettableFields::SwingVertical])
-                    tx_packet.Config.SwingVertical = this->changed_configuration.SwingVertical;
-
-                if (this->configuration_changes[SettableFields::SwingHorizontal])
-                    tx_packet.Config.SwingHorizontal = this->changed_configuration.SwingHorizontal;
-
-                // Set fields not returned from Indoor Unit
-                if (this->configuration_changes[SettableFields::AdvanceVerticalLouver])
-                    tx_packet.Config.Controller.AdvanceVerticalLouver = this->changed_configuration.Controller.AdvanceVerticalLouver;
-
-                if (this->configuration_changes[SettableFields::AdvanceHorizontalLouver])
-                    tx_packet.Config.Controller.AdvanceHorizontalLouver = this->changed_configuration.Controller.AdvanceHorizontalLouver;
-
-                if (this->configuration_changes[SettableFields::ResetFilterTimer])
-                    tx_packet.Config.Controller.ResetFilterTimer = this->changed_configuration.Controller.ResetFilterTimer;
-
-                if (this->configuration_changes[SettableFields::Maintenance])
-                    tx_packet.Config.Controller.Maintenance = this->changed_configuration.Controller.Maintenance;
-            }
-
-            this->configuration_changes.reset();
-
-            // Some fields need to be written clear in next tx packet
-            if (tx_packet.Config.Controller.ResetFilterTimer) {
-                this->changed_configuration.Controller.ResetFilterTimer = false;
-                this->configuration_changes[SettableFields::ResetFilterTimer] = true;
-            }
-
-            if (tx_packet.Config.Controller.Maintenance) {
-                this->changed_configuration.Controller.Maintenance = false;
-                this->configuration_changes[SettableFields::Maintenance] = true;
-            }
-        }
-
-        Packet::Buffer b = tx_packet.to_buffer();
         // TODO Should check have not missed tx window before tx...
         // Need to use RX_TIMEOUT interrupt to get accurate rx timestamp?
         // Can drop lastPacketOnWire check if implemented
@@ -327,11 +350,13 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
 }
 
 void Controller::set_current_temperature(float temperature) {
+    MutexGuard guard(this->mutex_);
     this->changed_configuration.Controller.Temperature = std::clamp(std::isfinite(temperature) ? temperature : 0, MinTemperature, MaxTemperature);
     // Do not set configuration_changed flag - does not require write bit set
 }
 
 bool Controller::set_enabled(bool enabled, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && (this->current_configuration.IndoorUnit.Lock.All || this->current_configuration.IndoorUnit.Lock.Enabled))
         return false;
 
@@ -341,6 +366,7 @@ bool Controller::set_enabled(bool enabled, bool ignore_lock) {
 }
 
 bool Controller::set_economy(bool economy, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -350,6 +376,7 @@ bool Controller::set_economy(bool economy, bool ignore_lock) {
 }
 
 bool Controller::set_test_run(bool test_run, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -359,6 +386,7 @@ bool Controller::set_test_run(bool test_run, bool ignore_lock) {
 }
 
 bool Controller::set_setpoint(uint8_t temperature, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -371,6 +399,7 @@ bool Controller::set_setpoint(uint8_t temperature, bool ignore_lock) {
 }
 
 bool Controller::set_mode(ModeEnum mode, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && (this->current_configuration.IndoorUnit.Lock.All || this->current_configuration.IndoorUnit.Lock.Mode))
         return false;
 
@@ -407,6 +436,7 @@ bool Controller::set_mode(ModeEnum mode, bool ignore_lock) {
 }
 
 bool Controller::set_fan_speed(FanSpeedEnum fan_speed, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -443,6 +473,7 @@ bool Controller::set_fan_speed(FanSpeedEnum fan_speed, bool ignore_lock) {
 }
 
 bool Controller::set_vertical_swing(bool swing_vertical, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -455,6 +486,7 @@ bool Controller::set_vertical_swing(bool swing_vertical, bool ignore_lock) {
 }
 
 bool Controller::set_horizontal_swing(bool swing_horizontal, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -467,6 +499,7 @@ bool Controller::set_horizontal_swing(bool swing_horizontal, bool ignore_lock) {
 }
 
 bool Controller::advance_vertical_louver(bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -479,6 +512,7 @@ bool Controller::advance_vertical_louver(bool ignore_lock) {
 }
 
 bool Controller::advance_horizontal_louver(bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -491,6 +525,7 @@ bool Controller::advance_horizontal_louver(bool ignore_lock) {
 }
 
 bool Controller::use_sensor(bool use_sensor, bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -503,6 +538,7 @@ bool Controller::use_sensor(bool use_sensor, bool ignore_lock) {
 }
 
 bool Controller::reset_filter(bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && (this->current_configuration.IndoorUnit.Lock.All || this->current_configuration.IndoorUnit.Lock.ResetFilterTimer))
         return false;
 
@@ -515,6 +551,7 @@ bool Controller::reset_filter(bool ignore_lock) {
 }
 
 bool Controller::maintenance(bool ignore_lock) {
+    MutexGuard guard(this->mutex_);
     if (!ignore_lock && this->current_configuration.IndoorUnit.Lock.All)
         return false;
 
@@ -524,6 +561,16 @@ bool Controller::maintenance(bool ignore_lock) {
     this->changed_configuration.Controller.Maintenance = true;
     this->configuration_changes[SettableFields::Maintenance] = true;
     return true;
+}
+
+void Controller::get_function(uint8_t function, uint8_t unit) {
+    MutexGuard guard(this->mutex_);
+    this->function_queue.push({ .Function = function, .Unit = unit });
+}
+
+void Controller::set_function(uint8_t function, uint8_t value, uint8_t unit) {
+    MutexGuard guard(this->mutex_);
+    this->function_queue.push({ true, function, value, unit });
 }
 
 }
