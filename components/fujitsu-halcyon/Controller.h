@@ -6,6 +6,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <driver/uart.h>
 
 #include "Packet.h"
@@ -127,8 +128,8 @@ class Controller {
         bool reset_filter(bool ignore_lock = false);
         bool maintenance(bool ignore_lock = false);
 
-        void get_function(uint8_t function, uint8_t unit) { this->function_queue.push({ .Function = function, .Unit = unit }); }
-        void set_function(uint8_t function, uint8_t value, uint8_t unit) { this->function_queue.push({ true, function, value, unit }); }
+        void get_function(uint8_t function, uint8_t unit);
+        void set_function(uint8_t function, uint8_t value, uint8_t unit);
 
     protected:
         InitializationStageEnum initialization_stage;
@@ -150,6 +151,7 @@ class Controller {
         std::bitset<SettableFields::MAX> configuration_changes;
         std::queue<struct Function> function_queue;
         bool last_error_flag = false; // TODO handle errors for multiple indoor units...multiple errors per IU?
+        SemaphoreHandle_t mutex_ = nullptr;
 
         [[noreturn]] void uart_event_task();
         void uart_read_bytes(uint8_t *buf, size_t length);
