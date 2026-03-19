@@ -110,12 +110,12 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor"}): switch.switch_schema(
+        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor", CONF_DISABLED_BY_DEFAULT: True}): switch.switch_schema(
             CustomSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="RESTORE_DEFAULT_OFF"
         ),
-        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor"}): sensor.sensor_schema(
+        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor", CONF_DISABLED_BY_DEFAULT: True}): sensor.sensor_schema(
             Sensor,
             unit_of_measurement=UNIT_CELSIUS,
             device_class=DEVICE_CLASS_TEMPERATURE,
@@ -139,17 +139,17 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
-        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver"}): button.button_schema(
+        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             CustomButton
         ),
-        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver"}): button.button_schema(
+        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             CustomButton
         ),
-        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer"}): button.button_schema(
+        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired"}): binary_sensor.binary_sensor_schema(
+        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired", CONF_DISABLED_BY_DEFAULT: True}): binary_sensor.binary_sensor_schema(
             BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
