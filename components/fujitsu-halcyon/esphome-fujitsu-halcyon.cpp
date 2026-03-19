@@ -13,8 +13,11 @@ static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
 constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" };
 
 void FujitsuHalcyonController::setup() {
+    auto uart_num = static_cast<uart_port_t>(
+        static_cast<uart::IDFUARTComponent*>(this->parent_)->get_hw_serial_number());
+
     this->controller = new fujitsu_general::airstage::h::Controller(
-        static_cast<uart::IDFUARTComponent*>(this->parent_)->get_hw_serial_number(),
+        uart_num,
         this->controller_address_,
         {
             .Config = [this](const fujitsu_general::airstage::h::Config& data){ this->update_from_device(data); },
@@ -24,12 +27,12 @@ void FujitsuHalcyonController::setup() {
             .InitializationStage = [this](const fujitsu_general::airstage::h::InitializationStageEnum stage){
                 this->on_initialization_stage(stage);
             },
-            .ReadBytes  = [this](uint8_t *buf, size_t length){
-                this->read_array(buf, length);
+            .ReadBytes  = [this, uart_num](uint8_t *buf, size_t length){
+                ::uart_read_bytes(uart_num, buf, length, portMAX_DELAY);
                 this->log_buffer("RX", buf, length);
             },
-            .WriteBytes = [this](const uint8_t *buf, size_t length){
-                this->write_array(buf, length);
+            .WriteBytes = [this, uart_num](const uint8_t *buf, size_t length){
+                ::uart_write_bytes(uart_num, buf, length);
                 this->log_buffer("TX", buf, length);
             }
         }
