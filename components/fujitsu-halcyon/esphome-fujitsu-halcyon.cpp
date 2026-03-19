@@ -122,31 +122,38 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     if (!this->connected_sensor->has_state() || connected != this->connected_sensor->state)
         this->connected_sensor->publish_state(connected);
 
-    if (!connected)
-        return;
+    // Publish supported features when initialization completes
+    if (connected) {
+        auto features = this->controller->get_features();
+        std::string feature_list;
 
-    // Expose feature dependent entities now that features are known,
-    // and force a state publish so HA discovers them even if ListEntities already ran
-    auto features = this->controller->get_features();
+        // Modes
+        if (features.Mode.Auto) feature_list += "Auto, ";
+        if (features.Mode.Cool) feature_list += "Cool, ";
+        if (features.Mode.Heat) feature_list += "Heat, ";
+        if (features.Mode.Dry) feature_list += "Dry, ";
+        if (features.Mode.Fan) feature_list += "Fan, ";
 
-    if (features.SensorSwitching && this->temperature_sensor_ != nullptr) {
-        this->use_sensor_switch->set_internal(false);
-        this->use_sensor_switch->publish_state(this->use_sensor_switch->state);
-    }
+        // Fan speeds
+        if (features.FanSpeed.Auto) feature_list += "Fan Auto, ";
+        if (features.FanSpeed.Quiet) feature_list += "Fan Quiet, ";
+        if (features.FanSpeed.Low) feature_list += "Fan Low, ";
+        if (features.FanSpeed.Medium) feature_list += "Fan Medium, ";
+        if (features.FanSpeed.High) feature_list += "Fan High, ";
 
-    if (features.VerticalLouvers) {
-        this->advance_vertical_louver_button->set_internal(false);
-    }
+        // Additional features
+        if (features.EconomyMode) feature_list += "Economy, ";
+        if (features.SensorSwitching) feature_list += "Sensor Switching, ";
+        if (features.FilterTimer) feature_list += "Filter Timer, ";
+        if (features.Maintenance) feature_list += "Maintenance, ";
+        if (features.HorizontalLouvers) feature_list += "Horizontal Louvers, ";
+        if (features.VerticalLouvers) feature_list += "Vertical Louvers, ";
 
-    if (features.HorizontalLouvers) {
-        this->advance_horizontal_louver_button->set_internal(false);
-    }
+        // Remove trailing ", "
+        if (feature_list.size() >= 2)
+            feature_list.erase(feature_list.size() - 2);
 
-    if (features.FilterTimer) {
-        this->filter_sensor->set_internal(false);
-        if (this->filter_sensor->has_state())
-            this->filter_sensor->publish_state(this->filter_sensor->state);
-        this->reset_filter_button->set_internal(false);
+        this->supported_features_sensor->publish_state(feature_list);
     }
 }
 
@@ -184,10 +191,8 @@ void FujitsuHalcyonController::dump_config() {
             ESP_LOGCONFIG(TAG, "    - Sensor Switching");
     }
 
-    if (!this->filter_sensor->is_internal())
-        ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor->state ? "EXPIRED" : "OK");
-    if (!this->use_sensor_switch->is_internal())
-        ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch->state ? "YES" : "NO");
+    ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor->state ? "EXPIRED" : "OK");
+    ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch->state ? "YES" : "NO");
 
 #if defined(USE_TZSP)
     LOG_TZSP("  ", this);
@@ -215,16 +220,14 @@ climate::ClimateTraits FujitsuHalcyonController::traits() {
     traits.set_visual_max_temperature(fujitsu_general::airstage::h::MaxSetpoint);
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2025, 11, 0)
     // Current temperature
-    if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
-        traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
+    traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
     // Current humidity
     if (this->humidity_sensor_ != nullptr)
         traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_HUMIDITY);
 #else
     // Current temperature
-    if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
-        traits.set_supports_current_temperature(true);
+    traits.set_supports_current_temperature(true);
 
     // Current humidity
     traits.set_supports_current_humidity(this->humidity_sensor_ != nullptr);
@@ -406,10 +409,6 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
 
 void FujitsuHalcyonController::update_from_controller(const uint8_t address, const fujitsu_general::airstage::h::Config& data) {
     if (address == this->temperature_controller_address_ && data.Controller.Temperature) {
-        // Make remote controllers sensor visible on first data received
-        if (this->remote_sensor->is_internal())
-            this->remote_sensor->set_internal(false);
-
         // Update remote controllers sensor component with remote controllers reported temperature
         if (data.Controller.Temperature != this->remote_sensor->raw_state)
             this->remote_sensor->publish_state(data.Controller.Temperature);
