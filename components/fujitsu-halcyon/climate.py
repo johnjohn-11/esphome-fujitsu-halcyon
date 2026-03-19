@@ -23,7 +23,6 @@ from esphome.const import (
     CONF_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_HUMIDITY_SENSOR,
-    CONF_INTERNAL,
     CONF_MODE,
     CONF_NAME,
     DEVICE_CLASS_TEMPERATURE,
@@ -65,6 +64,7 @@ CONF_RESET_FILTER_TIMER = "reset_filter_timer"
 CONF_FILTER_TIMER_EXPIRED = "filter_timer_expired"
 CONF_REINITIALIZE = "reinitialize"
 CONF_CONNECTED = "connected"
+CONF_SUPPORTED_FEATURES = "supported_features"
 
 CONF_FUNCTION = "function"
 CONF_FUNCTION_VALUE = "function_value"
@@ -110,12 +110,12 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor", CONF_INTERNAL: True}): switch.switch_schema(
+        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor"}): switch.switch_schema(
             CustomSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="RESTORE_DEFAULT_OFF"
         ),
-        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor", CONF_INTERNAL: True}): sensor.sensor_schema(
+        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor"}): sensor.sensor_schema(
             Sensor,
             unit_of_measurement=UNIT_CELSIUS,
             device_class=DEVICE_CLASS_TEMPERATURE,
@@ -139,17 +139,17 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
-        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver", CONF_INTERNAL: True}): button.button_schema(
+        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver"}): button.button_schema(
             CustomButton
         ),
-        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver", CONF_INTERNAL: True}): button.button_schema(
+        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver"}): button.button_schema(
             CustomButton
         ),
-        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer", CONF_INTERNAL: True}): button.button_schema(
+        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer"}): button.button_schema(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired", CONF_INTERNAL: True}): binary_sensor.binary_sensor_schema(
+        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired"}): binary_sensor.binary_sensor_schema(
             BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
@@ -162,6 +162,10 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_CONNECTIVITY
+        ),
+        cv.Optional(CONF_SUPPORTED_FEATURES, default={CONF_NAME: "Supported Features"}): text_sensor.text_sensor_schema(
+            TextSensor,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         )
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
@@ -229,6 +233,9 @@ async def to_code(config: ConfigType) -> None:
 
     varx = cg.Pvariable(config[CONF_CONNECTED][CONF_ID], var.connected_sensor)
     await binary_sensor.register_binary_sensor(varx, config[CONF_CONNECTED])
+
+    varx = cg.Pvariable(config[CONF_SUPPORTED_FEATURES][CONF_ID], var.supported_features_sensor)
+    await text_sensor.register_text_sensor(varx, config[CONF_SUPPORTED_FEATURES])
 
     varx = cg.Pvariable(config[CONF_REMOTE_SENSOR][CONF_ID], var.remote_sensor)
     await sensor.register_sensor(varx, config[CONF_REMOTE_SENSOR])
