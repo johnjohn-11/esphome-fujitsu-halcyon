@@ -209,7 +209,7 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     if (features.Zones) {
         auto& zones = this->controller->get_zones();
 
-        for (auto i = 0; i < this->zone_switches.size(); i++)
+        for (size_t i = 0; i < this->zone_switches.size(); i++)
             if (zones.EnabledZones[i]) {
                 this->zone_switches[i]->set_internal(false);
                 this->zone_switches[i]->publish_state(this->zone_switches[i]->state);
@@ -262,7 +262,7 @@ void FujitsuHalcyonController::dump_config() {
             // Build a comma-separated list of enabled zones
             char buf[3 * zones.EnabledZones.size() + 1];
             int offset = 0;
-            for (auto i = 0; i < zones.EnabledZones.size() && offset < sizeof(buf); i++)
+            for (size_t i = 0; i < zones.EnabledZones.size() && offset < static_cast<int>(sizeof(buf)); i++)
                 if (zones.EnabledZones[i])
                     offset += std::snprintf(buf + offset, sizeof(buf) - offset, "%u, ", i + 1);
             buf[offset ? offset - 2 : 0] = '\0';
@@ -461,7 +461,7 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data) {
-    for (auto i = 0; i < this->zone_switches.size(); i++)
+    for (size_t i = 0; i < this->zone_switches.size(); i++)
         this->zone_switches[i]->publish_state(data.ActiveZones[i]);
 
     this->zone_group_day_switch->publish_state(data.ActiveZoneGroups.Day);
