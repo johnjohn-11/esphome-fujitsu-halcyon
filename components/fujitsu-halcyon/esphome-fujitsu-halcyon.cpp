@@ -242,7 +242,7 @@ void FujitsuHalcyonController::dump_config() {
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
     ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor->state ? "ACTIVE" : "NORMAL");
 
-    if (this->controller->is_initialized()) {
+    if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
 
         ESP_LOGCONFIG(TAG, "  Additional Features:%s", features.FilterTimer || features.Maintenance || features.SensorSwitching || features.Zones ? "" : " NONE");
@@ -290,13 +290,19 @@ void FujitsuHalcyonController::dump_config() {
 climate::ClimateTraits FujitsuHalcyonController::traits() {
     using namespace climate;
 
-    auto& features = this->controller->get_features();
     auto traits = ClimateTraits();
 
     // Target temperature / Setpoint
     traits.set_visual_temperature_step(1);
     traits.set_visual_min_temperature(fujitsu_general::airstage::h::MinSetpoint);
     traits.set_visual_max_temperature(fujitsu_general::airstage::h::MaxSetpoint);
+
+    // controller is null if setup() failed early; return the basic temperature
+    // traits so the entity still registers rather than dereferencing a nullptr.
+    if (this->controller == nullptr)
+        return traits;
+
+    auto& features = this->controller->get_features();
 
     // Current temperature
     if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
