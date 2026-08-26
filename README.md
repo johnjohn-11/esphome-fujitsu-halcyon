@@ -16,8 +16,10 @@ external_components:
 #  - source: github://Omniflux/esphome-tzsp
   - source: github://Omniflux/esphome-fujitsu-halcyon
 
-packages:
-  wifi: !include common/wifi.yaml
+# Add wifi_ssid and wifi_password to your secrets.yaml
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
 esphome:
   name: ${device_name}
