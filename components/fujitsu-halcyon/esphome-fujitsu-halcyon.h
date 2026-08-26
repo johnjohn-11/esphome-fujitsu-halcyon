@@ -125,7 +125,10 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         fujitsu_general::airstage::h::Features features_override_ = fujitsu_general::airstage::h::DefaultFeatures;
 
     private:
-        fujitsu_general::airstage::h::Controller* controller;
+        // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.
+        // uart_set_mode failure), so dump_config()/traits() must null-check before
+        // dereferencing since they can run on a failed component.
+        fujitsu_general::airstage::h::Controller* controller = nullptr;
 
         void update_from_device(const fujitsu_general::airstage::h::Config& data);
         void update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data);
