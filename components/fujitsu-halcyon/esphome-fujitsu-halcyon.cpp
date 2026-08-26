@@ -73,9 +73,12 @@ void FujitsuHalcyonController::setup() {
 
     // Use specified sensor for this components reported temperature
     if (this->temperature_sensor_ != nullptr) {
-        // Temperature sensor is in Fahrenheit, but need Celsius
-        const auto unit_of_measurement = this->temperature_sensor_->get_unit_of_measurement_ref();
-        if (unit_of_measurement[unit_of_measurement.size() - 1] == 'F')
+        // Temperature sensor is in Fahrenheit, but need Celsius.
+        // An empty unit (common when importing a Home Assistant sensor that
+        // doesn't report one) is treated as Celsius; indexing the last character
+        // of an empty StringRef would otherwise read out of bounds.
+        const auto& unit_of_measurement = this->temperature_sensor_->get_unit_of_measurement_ref();
+        if (!unit_of_measurement.empty() && unit_of_measurement[unit_of_measurement.size() - 1] == 'F')
         {
             this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
                 this->current_temperature = esphome::fahrenheit_to_celsius(state);
