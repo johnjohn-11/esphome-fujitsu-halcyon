@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdio>
+#include <string>
 #include <type_traits>
 
 #include <esphome/core/helpers.h>
@@ -473,34 +474,38 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
     // Error packet
     if (data.Type == PacketTypeEnum::Error)
     {
+        const bool has_error = data.Error.ErrorCode != 0;
+
         // Error sensor (boolean)
-        if (!data.Error.ErrorCode == this->error_sensor->state)
-            this->error_sensor->publish_state(data.Error.ErrorCode);
+        if (has_error != this->error_sensor->state)
+            this->error_sensor->publish_state(has_error);
 
-        // Error sensor (text)
-        if (!data.Error.ErrorCode != this->error_code_sensor->get_raw_state().empty())
+        // Error sensor (text): "AA BB[.CCC]" (source address + error code + extended).
+        // Build the desired string first, then publish only if it differs from the
+        // current value. Comparing the full string (rather than just error/no-error)
+        // means a fault changing from one non-zero code to another still refreshes.
+        std::string error_text;
+        if (has_error)
         {
-            if (!data.Error.ErrorCode)
-                this->error_code_sensor->publish_state("");
-            else
-            {
-                const auto error_bytes = std::to_array<uint8_t>({ data.SourceAddress, data.Error.ErrorCode });
-                const auto error_buf_len = esphome::format_hex_pretty_size(error_bytes.size());
-                constexpr auto extended_error_buf_len = 4;
+            const auto error_bytes = std::to_array<uint8_t>({ data.SourceAddress, data.Error.ErrorCode });
+            const auto error_buf_len = esphome::format_hex_pretty_size(error_bytes.size());
+            constexpr auto extended_error_buf_len = 4;
 
-                char error_buf[error_buf_len + extended_error_buf_len];
-                esphome::format_hex_pretty_to(error_buf, error_bytes, ' ');
+            char error_buf[error_buf_len + extended_error_buf_len];
+            esphome::format_hex_pretty_to(error_buf, error_bytes, ' ');
 
-                if (data.Error.ErrorCodeExtended)
-                    std::sprintf(error_buf + error_buf_len - 1, ".%u", data.Error.ErrorCodeExtended);
+            if (data.Error.ErrorCodeExtended)
+                std::snprintf(error_buf + error_buf_len - 1, extended_error_buf_len + 1, ".%u", data.Error.ErrorCodeExtended);
 
-                // NOTE: Error codes D? appear to be remapped to J?, but maybe not in all cases?
-                if ((data.Error.ErrorCode & 0xF0) == 0xD0)
-                    error_buf[3] = 'J';
+            // NOTE: Error codes D? appear to be remapped to J?, but maybe not in all cases?
+            if ((data.Error.ErrorCode & 0xF0) == 0xD0)
+                error_buf[3] = 'J';
 
-                this->error_code_sensor->publish_state(error_buf);
-            }
+            error_text = error_buf;
         }
+
+        if (error_text != this->error_code_sensor->get_raw_state())
+            this->error_code_sensor->publish_state(error_text);
     }
 }
 
