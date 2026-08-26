@@ -2,6 +2,8 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 import esphome.final_validate as fv
 
+from esphome.core import CORE
+
 from esphome.components import (
     binary_sensor,
     button,
@@ -276,6 +278,24 @@ def check_esphome_version(config):
 
     return config
 
+def check_platform(config):
+    # This component relies on the ESP-IDF RS485 half-duplex UART driver
+    # (uart_set_mode / driver/uart.h), so it only builds for ESP32 + esp-idf.
+    # Fail early with a clear message instead of a wall of compiler errors.
+    if not CORE.is_esp32:
+        raise cv.Invalid(
+            f"Component {COMPONENT_NAME} only supports the ESP32 platform "
+            "(it uses the ESP-IDF RS485 half-duplex UART driver)."
+        )
+
+    if CORE.target_framework != "esp-idf":
+        raise cv.Invalid(
+            f"Component {COMPONENT_NAME} requires the esp-idf framework. Set:\n"
+            "  esp32:\n    framework:\n      type: esp-idf"
+        )
+
+    return config
+
 def final_validate_uart_schema(config):
     def validate_rx_full_threshold(value):
         if not isinstance(value, int) or value < PACKET_FRAME_SIZE * 2:
@@ -310,6 +330,7 @@ def final_validate_uart_schema(config):
 
 FINAL_VALIDATE_SCHEMA = cv.All(
     check_esphome_version,
+    check_platform,
     final_validate_uart_schema,
     uart.final_validate_device_schema(
         COMPONENT_NAME,
