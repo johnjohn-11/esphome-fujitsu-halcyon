@@ -1,5 +1,6 @@
 #include "esphome-fujitsu-halcyon.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <string>
@@ -212,6 +213,11 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
 }
 
 void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, size_t length) {
+    // Frames are at most Packet::FrameSize bytes; clamp so the fixed-size pretty
+    // buffer below can never overflow. Sizing the buffer from this compile-time
+    // constant (rather than tbuf.size()) also avoids a non-standard VLA.
+    length = std::min(length, static_cast<size_t>(fujitsu_general::airstage::h::Packet::FrameSize));
+
     auto tbuf = std::vector<uint8_t>(buf, buf + length);
     for (auto &b : tbuf)
         b ^= 0xFF;
@@ -220,8 +226,8 @@ void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, s
     this->tzsp_send(tbuf);
 #endif
 
-    char pretty_buf[esphome::format_hex_pretty_size(tbuf.size())];
-    esphome::format_hex_pretty_to(pretty_buf, sizeof(pretty_buf), tbuf.data(), tbuf.size(), ' ');
+    char pretty_buf[esphome::format_hex_pretty_size(fujitsu_general::airstage::h::Packet::FrameSize)];
+    esphome::format_hex_pretty_to(pretty_buf, tbuf, ' ');
     ESP_LOGD(TAG, "%s: %s", dir, pretty_buf);
 }
 
