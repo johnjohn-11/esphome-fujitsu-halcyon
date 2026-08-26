@@ -116,6 +116,13 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         uint8_t controller_address_{};
         uint8_t temperature_controller_address_{};
         bool ignore_lock_{};
+
+        // Set from the UART read/write callbacks; used by the transmit-token
+        // watchdog scheduled in setup() to detect a read-only (never granted the
+        // token) controller.
+        bool received_bytes_{false};
+        bool transmitted_{false};
+
         sensor::Sensor* humidity_sensor_{};
         sensor::Sensor* temperature_sensor_{};
 

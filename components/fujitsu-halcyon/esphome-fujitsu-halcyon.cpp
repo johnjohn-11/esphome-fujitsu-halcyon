@@ -13,6 +13,11 @@ namespace esphome::fujitsu_general_airstage_h_controller {
 
 static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
 
+// If we are receiving from the bus but have not been handed a transmit token
+// within this window, control commands cannot be delivered (the unit is
+// effectively read-only). Warn the user once with guidance.
+static constexpr uint32_t TX_TOKEN_TIMEOUT_MS = 15000;
+
 constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" };
 
 void FujitsuHalcyonController::loop() {
@@ -54,9 +59,11 @@ void FujitsuHalcyonController::setup() {
             },
             .ReadBytes  = [this](uint8_t *buf, size_t length){
                 this->read_array(buf, length);
+                this->received_bytes_ = true;
                 this->log_buffer("RX", buf, length);
             },
             .WriteBytes = [this](const uint8_t *buf, size_t length){
+                this->transmitted_ = true;
                 this->write_array(buf, length);
                 this->log_buffer("TX", buf, length);
             }
@@ -72,6 +79,20 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_autoconf(this->autoconf_);
 
     this->connected_sensor->publish_initial_state(false);
+
+    // Diagnostic for the common "reads state but cannot control" failure mode:
+    // if the bus is delivering packets but this controller is never granted a
+    // transmit token, warn once with actionable guidance. Secondary controllers
+    // (controller_address > 0) only get to register during the preceding
+    // controller's power-on window.
+    this->set_timeout(TX_TOKEN_TIMEOUT_MS, [this]() {
+        if (this->received_bytes_ && !this->transmitted_)
+            ESP_LOGW(TAG,
+                "Receiving data but no transmit token after %u s - control commands will have no effect. "
+                "If controller_address > 0, power this device on before (or with) the preceding "
+                "controller(s) so it can register for the token. See the README Troubleshooting section.",
+                static_cast<unsigned>(TX_TOKEN_TIMEOUT_MS / 1000));
+    });
 
     // Use specified sensor for this components reported temperature
     if (this->temperature_sensor_ != nullptr) {
