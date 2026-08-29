@@ -82,7 +82,8 @@ sensor:
   - platform: homeassistant # https://esphome.io/components/sensor/homeassistant.html
     id: my_temperature_sensor
     entity_id: sensor.my_temperature_sensor  # Home Assistant entity_id
-    unit_of_measurement: "°F"  # unit_of_measurement is lost on import, defaults to °C
+    filters: # Sensor value must be °C. Convert from °F if your source is Fahrenheit.
+      - lambda: return fahrenheit_to_celsius(x);
 
   - platform: homeassistant
     id: my_humidity_sensor
