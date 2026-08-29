@@ -94,38 +94,20 @@ void FujitsuHalcyonController::setup() {
                 static_cast<unsigned>(TX_TOKEN_TIMEOUT_MS / 1000));
     });
 
-    // Use specified sensor for this components reported temperature
+    // Use the specified sensor for this component's reported temperature. The
+    // value must be in Celsius. Convert in YAML (see README) if your source is
+    // Fahrenheit. Auto-detecting the unit is unreliable because
+    // unit_of_measurement is lost when importing a Home Assistant sensor.
     if (this->temperature_sensor_ != nullptr) {
-        // Temperature sensor is in Fahrenheit, but need Celsius.
-        // An empty unit (common when importing a Home Assistant sensor that
-        // doesn't report one) is treated as Celsius; indexing the last character
-        // of an empty StringRef would otherwise read out of bounds.
-        const auto& unit_of_measurement = this->temperature_sensor_->get_unit_of_measurement_ref();
-        if (!unit_of_measurement.empty() && unit_of_measurement[unit_of_measurement.size() - 1] == 'F')
-        {
-            this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
-                this->current_temperature = esphome::fahrenheit_to_celsius(state);
-                this->publish_state();
+        this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
+            this->current_temperature = state;
+            this->publish_state();
 
-                // Send this temperature to the Fujitsu IU
-                this->controller->set_current_temperature(this->current_temperature);
-            });
+            // Send this temperature to the Fujitsu IU
+            this->controller->set_current_temperature(state);
+        });
 
-            this->current_temperature = esphome::fahrenheit_to_celsius(this->temperature_sensor_->state);
-        }
-        // Temperature sensor is in Celsius
-        else
-        {
-            this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
-                this->current_temperature = state;
-                this->publish_state();
-
-                // Send this temperature to the Fujitsu IU
-                this->controller->set_current_temperature(state);
-            });
-
-            this->current_temperature = this->temperature_sensor_->state;
-        }
+        this->current_temperature = this->temperature_sensor_->state;
     }
 
     if (this->humidity_sensor_ != nullptr) {
