@@ -272,12 +272,6 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
 if TZSP_AVAILABLE:
     CONFIG_SCHEMA = CONFIG_SCHEMA.extend(tzsp.TZSP_SENDER_SCHEMA)
 
-def check_esphome_version(config):
-    if cv.parse_esphome_version() < (2026, 3, 0):
-        raise cv.Invalid(f"Component {COMPONENT_NAME} requires ESPHome 2026.3.0 or newer.")
-
-    return config
-
 def check_platform(config):
     # This component relies on the ESP-IDF RS485 half-duplex UART driver
     # (uart_set_mode / driver/uart.h), so it only builds for ESP32 + esp-idf.
@@ -329,7 +323,7 @@ def final_validate_uart_schema(config):
     return config
 
 FINAL_VALIDATE_SCHEMA = cv.All(
-    check_esphome_version,
+    cv.require_esphome_version(2026, 3, 0),
     check_platform,
     final_validate_uart_schema,
     uart.final_validate_device_schema(
