@@ -11,7 +11,7 @@
 
 namespace esphome::fujitsu_general_airstage_h_controller {
 
-static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
+static const auto TAG = "fujitsu_halcyon";
 
 // If we are receiving from the bus but have not been handed a transmit token
 // within this window, control commands cannot be delivered (the unit is
