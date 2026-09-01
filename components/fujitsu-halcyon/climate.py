@@ -23,7 +23,6 @@ else:
     TZSP_AVAILABLE = True
 
 from esphome.const import (
-    CONF_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_HUMIDITY_SENSOR,
     CONF_MODE,
@@ -114,13 +113,7 @@ CONF_SET_FUNCTION = "set_function"
 # the standard ESPHome pattern. The entity set stays static at config time and
 # there is no deprecated runtime set_internal() reveal. An undeclared entity does
 # not exist. Core diagnostics and the function controls stay always present.
-BinarySensor = cg.esphome_ns.class_("BinarySensor", cg.Component, binary_sensor.BinarySensor)
-TextSensor = cg.esphome_ns.class_("TextSensor", cg.Component, text_sensor.TextSensor)
-Sensor = cg.esphome_ns.class_("Sensor", cg.Component, sensor.Sensor)
 
-custom_ns = cg.esphome_ns.namespace("custom")
-CustomButton = custom_ns.class_("CustomButton", cg.Component, button.Button)
-CustomNumber = custom_ns.class_("CustomNumber", cg.Component, number.Number)
 fujitsu_general_airstage_h_controller_ns = cg.esphome_ns.namespace("fujitsu_general_airstage_h_controller")
 FujitsuHalcyonController = fujitsu_general_airstage_h_controller_ns.class_("FujitsuHalcyonController", cg.Component, climate.Climate, uart.UARTDevice)
 
@@ -133,6 +126,10 @@ ResetFilterButton = fujitsu_general_airstage_h_controller_ns.class_("ResetFilter
 ZoneSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneSwitch", switch.Switch)
 ZoneGroupDaySwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupDaySwitch", switch.Switch)
 ZoneGroupNightSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupNightSwitch", switch.Switch)
+ReinitializeButton = fujitsu_general_airstage_h_controller_ns.class_("ReinitializeButton", button.Button)
+GetFunctionButton = fujitsu_general_airstage_h_controller_ns.class_("GetFunctionButton", button.Button)
+SetFunctionButton = fujitsu_general_airstage_h_controller_ns.class_("SetFunctionButton", button.Button)
+FunctionNumber = fujitsu_general_airstage_h_controller_ns.class_("FunctionNumber", number.Number)
 
 PACKET_FRAME_SIZE = 8
 UART_INTER_PACKET_SYMBOL_SPACING = 2
@@ -165,23 +162,23 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_MAINTENANCE): cv.boolean,
         cv.Optional(CONF_ECONOMY_MODE): cv.boolean,
         cv.Optional(CONF_FUNCTION, default={CONF_NAME: "Function", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
+            FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
         cv.Optional(CONF_FUNCTION_VALUE, default={CONF_NAME: "Function Value", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
+            FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
         cv.Optional(CONF_FUNCTION_UNIT, default={CONF_NAME: "Function Unit", CONF_MODE: "BOX"}): number.number_schema(
-            CustomNumber,
+            FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
         cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function_Read"}): button.button_schema(
-            CustomButton,
+            GetFunctionButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
         cv.Optional(CONF_SET_FUNCTION, default={CONF_NAME: "Function_Write", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
-            CustomButton,
+            SetFunctionButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
         # Feature-dependent entities. Created only when declared. Declaring a key
@@ -198,20 +195,16 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ), "Remote Temperature Sensor"),
         cv.Optional(CONF_STANDBY_MODE, default={CONF_NAME: "Standby Mode"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         cv.Optional(CONF_ERROR_STATE, default={CONF_NAME: "Error"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
         ),
         cv.Optional(CONF_ERROR_CODE, default={CONF_NAME: "Error Code"}): text_sensor.text_sensor_schema(
-            TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         cv.Optional(CONF_INITIALIZATION_STAGE, default={CONF_NAME: "Initialization Stage"}): text_sensor.text_sensor_schema(
-            TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER): _feature_entity(button.button_schema(
@@ -229,16 +222,14 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             device_class=DEVICE_CLASS_PROBLEM
         ), "Filter Timer Expired"),
         cv.Optional(CONF_REINITIALIZE, default={CONF_NAME: "Reinitialize"}): button.button_schema(
-            CustomButton,
+            ReinitializeButton,
             entity_category=ENTITY_CATEGORY_CONFIG,
         ),
         cv.Optional(CONF_CONNECTED, default={CONF_NAME: "Connected"}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_CONNECTIVITY
         ),
         cv.Optional(CONF_SUPPORTED_FEATURES, default={CONF_NAME: "Supported Features"}): text_sensor.text_sensor_schema(
-            TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         **{
@@ -371,60 +362,43 @@ async def to_code(config: ConfigType) -> None:
     if CONF_ECONOMY_MODE in config:
         cg.add(var.set_economy_mode(config[CONF_ECONOMY_MODE]))
 
-    # Always-present diagnostics and controls.
-    varx = cg.Pvariable(config[CONF_STANDBY_MODE][CONF_ID], var.standby_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_STANDBY_MODE])
+    # Always-present diagnostics, created in python and given to the hub via setters.
+    s = await binary_sensor.new_binary_sensor(config[CONF_STANDBY_MODE])
+    cg.add(var.set_standby_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_ERROR_STATE][CONF_ID], var.error_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_ERROR_STATE])
+    s = await binary_sensor.new_binary_sensor(config[CONF_ERROR_STATE])
+    cg.add(var.set_error_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_ERROR_CODE][CONF_ID], var.error_code_sensor)
-    await text_sensor.register_text_sensor(varx, config[CONF_ERROR_CODE])
+    s = await text_sensor.new_text_sensor(config[CONF_ERROR_CODE])
+    cg.add(var.set_error_code_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_INITIALIZATION_STAGE][CONF_ID], var.initialization_sensor)
-    await text_sensor.register_text_sensor(varx, config[CONF_INITIALIZATION_STAGE])
+    s = await text_sensor.new_text_sensor(config[CONF_INITIALIZATION_STAGE])
+    cg.add(var.set_initialization_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_GET_FUNCTION][CONF_ID], var.get_function)
-    await button.register_button(varx, config[CONF_GET_FUNCTION])
+    # Always-present controls.
+    b = await button.new_button(config[CONF_GET_FUNCTION])
+    await cg.register_parented(b, var)
 
-    varx = cg.Pvariable(config[CONF_SET_FUNCTION][CONF_ID], var.set_function)
-    await button.register_button(varx, config[CONF_SET_FUNCTION])
+    b = await button.new_button(config[CONF_SET_FUNCTION])
+    await cg.register_parented(b, var)
 
-    varx = cg.Pvariable(config[CONF_REINITIALIZE][CONF_ID], var.reinitialize_button)
-    await button.register_button(varx, config[CONF_REINITIALIZE])
+    b = await button.new_button(config[CONF_REINITIALIZE])
+    await cg.register_parented(b, var)
 
-    varx = cg.Pvariable(config[CONF_CONNECTED][CONF_ID], var.connected_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_CONNECTED])
+    s = await binary_sensor.new_binary_sensor(config[CONF_CONNECTED])
+    cg.add(var.set_connected_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_SUPPORTED_FEATURES][CONF_ID], var.supported_features_sensor)
-    await text_sensor.register_text_sensor(varx, config[CONF_SUPPORTED_FEATURES])
+    s = await text_sensor.new_text_sensor(config[CONF_SUPPORTED_FEATURES])
+    cg.add(var.set_supported_features_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_FUNCTION][CONF_ID], var.function)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION],
-        min_value=0,
-        max_value=255,
-        step=1
-    )
+    n = await number.new_number(config[CONF_FUNCTION], min_value=0, max_value=255, step=1)
+    cg.add(var.set_function_number(n))
 
-    varx = cg.Pvariable(config[CONF_FUNCTION_VALUE][CONF_ID], var.function_value)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION_VALUE],
-        min_value=0,
-        max_value=255,
-        step=1
-    )
+    n = await number.new_number(config[CONF_FUNCTION_VALUE], min_value=0, max_value=255, step=1)
+    cg.add(var.set_function_value_number(n))
 
-    varx = cg.Pvariable(config[CONF_FUNCTION_UNIT][CONF_ID], var.function_unit)
-    await number.register_number(
-        varx,
-        config[CONF_FUNCTION_UNIT],
-        min_value=0,
-        max_value=15,
-        step=1
-    )
+    n = await number.new_number(config[CONF_FUNCTION_UNIT], min_value=0, max_value=15, step=1)
+    cg.add(var.set_function_unit_number(n))
 
     # Feature-dependent entities. Registered only when declared in YAML, so an
     # undeclared entity is never exposed to Home Assistant. No runtime reveal.

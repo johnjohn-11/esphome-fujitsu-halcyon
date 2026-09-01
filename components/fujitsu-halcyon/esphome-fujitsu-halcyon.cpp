@@ -78,7 +78,7 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_features(this->features_override_);
     this->controller->set_autoconf(this->autoconf_);
 
-    this->connected_sensor->publish_initial_state(false);
+    this->connected_sensor_->publish_initial_state(false);
 
     // Diagnostic for the common "reads state but cannot control" failure mode:
     // if the bus is delivering packets but this controller is never granted a
@@ -127,11 +127,11 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     // Update initialization stage sensor
     char buf[8];
     std::snprintf(buf, sizeof(buf), "(%u/%u)", static_cast<stage_t>(stage), static_cast<stage_t>(InitializationStageEnum::Complete));
-    this->initialization_sensor->publish_state(buf);
+    this->initialization_sensor_->publish_state(buf);
     ESP_LOGD(TAG, "Initialization stage: %s", buf);
 
     // Update connected sensor
-    this->connected_sensor->publish_state(stage == InitializationStageEnum::Complete);
+    this->connected_sensor_->publish_state(stage == InitializationStageEnum::Complete);
 
     // Everything below depends on features being known
     if (stage <= InitializationStageEnum::FeatureRequestRx)
@@ -166,7 +166,7 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             features.HorizontalLouvers ? " | H.Louvers"        : "",
             features.Zones             ? " | Zones"            : ""
         );
-        this->supported_features_sensor->publish_state(buf);
+        this->supported_features_sensor_->publish_state(buf);
     }
 
     if (features.SensorSwitching && this->temperature_sensor_ != nullptr && this->use_sensor_switch_ != nullptr)
@@ -236,7 +236,7 @@ void FujitsuHalcyonController::dump_config() {
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
-    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor->state ? "ACTIVE" : "NORMAL");
+    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
 
     if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
@@ -404,17 +404,17 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
     auto need_to_publish = false;
 
     // Error sensor (binary)
-    if (!this->error_sensor->has_state())
-        this->error_sensor->publish_state(data.IndoorUnit.Error);
+    if (!this->error_sensor_->has_state())
+        this->error_sensor_->publish_state(data.IndoorUnit.Error);
 
     // Error sensor (text)
-    if (!this->error_code_sensor->has_state() && !data.IndoorUnit.Error)
-        this->error_code_sensor->publish_state("");
+    if (!this->error_code_sensor_->has_state() && !data.IndoorUnit.Error)
+        this->error_code_sensor_->publish_state("");
 
     // Standby mode sensor
     // This can indicate defrosting, performing oil recovery, waiting for other units to complete....
-    if (!this->standby_sensor->has_state() || data.IndoorUnit.StandbyMode != this->standby_sensor->state)
-        this->standby_sensor->publish_state(data.IndoorUnit.StandbyMode);
+    if (!this->standby_sensor_->has_state() || data.IndoorUnit.StandbyMode != this->standby_sensor_->state)
+        this->standby_sensor_->publish_state(data.IndoorUnit.StandbyMode);
 
     // Filter sensor
     if (this->filter_sensor_ != nullptr && this->controller->get_features().FilterTimer && (!this->filter_sensor_->has_state() || data.IndoorUnit.FilterTimerExpired != this->filter_sensor_->state))
@@ -477,8 +477,8 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
         const bool has_error = data.Error.ErrorCode != 0;
 
         // Error sensor (boolean)
-        if (has_error != this->error_sensor->state)
-            this->error_sensor->publish_state(has_error);
+        if (has_error != this->error_sensor_->state)
+            this->error_sensor_->publish_state(has_error);
 
         // Error sensor (text): "AA BB[.CCC]" (source address + error code + extended).
         // Build the desired string first, then publish only if it differs from the
@@ -504,15 +504,15 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
             error_text = error_buf;
         }
 
-        if (error_text != this->error_code_sensor->get_raw_state())
-            this->error_code_sensor->publish_state(error_text);
+        if (error_text != this->error_code_sensor_->get_raw_state())
+            this->error_code_sensor_->publish_state(error_text);
     }
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Function& data) {
-    this->function->publish_state(data.Function);
-    this->function_value->publish_state(data.Value);
-    this->function_unit->publish_state(data.Unit);
+    this->function_number_->publish_state(data.Function);
+    this->function_value_number_->publish_state(data.Value);
+    this->function_unit_number_->publish_state(data.Unit);
 }
 
 void FujitsuHalcyonController::update_from_controller(const uint8_t address, const fujitsu_general::airstage::h::Config& data) {

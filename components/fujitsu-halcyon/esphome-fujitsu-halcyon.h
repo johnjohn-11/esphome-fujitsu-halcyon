@@ -6,7 +6,9 @@
 #include <esphome/core/component.h>
 #include <esphome/core/helpers.h>
 #include <esphome/components/binary_sensor/binary_sensor.h>
+#include <esphome/components/button/button.h>
 #include <esphome/components/climate/climate.h>
+#include <esphome/components/number/number.h>
 #include <esphome/components/sensor/sensor.h>
 #include <esphome/components/switch/switch.h>
 #include <esphome/components/text_sensor/text_sensor.h>
@@ -17,8 +19,6 @@
 #include <esphome/components/tzsp/tzsp.h>
 #endif
 
-#include "esphome-custom-button.h"
-#include "esphome-custom-number.h"
 #include "Controller.h"
 
 namespace esphome::fujitsu_general_airstage_h_controller {
@@ -29,14 +29,9 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
 class FujitsuHalcyonController : public Component, public climate::Climate, public uart::UARTDevice {
 #endif
     public:
-        binary_sensor::BinarySensor* standby_sensor = new binary_sensor::BinarySensor();
-        binary_sensor::BinarySensor* error_sensor = new binary_sensor::BinarySensor();
-        binary_sensor::BinarySensor* connected_sensor = new binary_sensor::BinarySensor();
-        text_sensor::TextSensor* error_code_sensor = new text_sensor::TextSensor();
-        text_sensor::TextSensor* initialization_sensor = new text_sensor::TextSensor();
-        text_sensor::TextSensor* supported_features_sensor = new text_sensor::TextSensor();
 
-        custom::CustomButton* reinitialize_button = new custom::CustomButton([this]() { this->controller->reinitialize(); });
+        // Called by the ReinitializeButton entity (created inline in python).
+        void reinitialize() { this->controller->reinitialize(); }
         // Called by the ResetFilterButton entity (created inline in python, see climate.py).
         void reset_filter() { this->controller->reset_filter(this->ignore_lock_); }
         // Called by the AdvanceVerticalLouverButton / AdvanceHorizontalLouverButton
@@ -59,20 +54,30 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         void set_zone_group_night_switch(switch_::Switch* sw) { this->zone_group_night_switch_ = sw; }
         void set_filter_sensor(binary_sensor::BinarySensor* s) { this->filter_sensor_ = s; }
         void set_remote_sensor(sensor::Sensor* s) { this->remote_sensor_ = s; }
+        // Always-present diagnostics, created in python and set here so the hub can publish to them.
+        void set_standby_sensor(binary_sensor::BinarySensor* s) { this->standby_sensor_ = s; }
+        void set_error_sensor(binary_sensor::BinarySensor* s) { this->error_sensor_ = s; }
+        void set_connected_sensor(binary_sensor::BinarySensor* s) { this->connected_sensor_ = s; }
+        void set_error_code_sensor(text_sensor::TextSensor* s) { this->error_code_sensor_ = s; }
+        void set_initialization_sensor(text_sensor::TextSensor* s) { this->initialization_sensor_ = s; }
+        void set_supported_features_sensor(text_sensor::TextSensor* s) { this->supported_features_sensor_ = s; }
 
-        custom::CustomNumber* function = new custom::CustomNumber([this](float state) { return int(state); });
-        custom::CustomNumber* function_value = new custom::CustomNumber([this](float state) { return int(state); });
-        custom::CustomNumber* function_unit = new custom::CustomNumber([this](float state) { return int(state); });
-        custom::CustomButton* get_function = new custom::CustomButton([this]() {
-            if (this->function->has_state() && this->function_unit->has_state()) {
-                this->function_value->publish_state(NAN);
-                this->controller->get_function(this->function->state, this->function_unit->state);
+        // The function number entities and the get/set function buttons are created
+        // inline in python. The numbers are registered here via setters, the buttons
+        // call get_function() / set_function().
+        void set_function_number(number::Number* n) { this->function_number_ = n; }
+        void set_function_value_number(number::Number* n) { this->function_value_number_ = n; }
+        void set_function_unit_number(number::Number* n) { this->function_unit_number_ = n; }
+        void get_function() {
+            if (this->function_number_->has_state() && this->function_unit_number_->has_state()) {
+                this->function_value_number_->publish_state(NAN);
+                this->controller->get_function(this->function_number_->state, this->function_unit_number_->state);
             }
-        });
-        custom::CustomButton* set_function = new custom::CustomButton([this]() {
-            if (this->function->has_state() && this->function_value->has_state() && this->function_unit->has_state())
-                this->controller->set_function(this->function->state, this->function_value->state, this->function_unit->state);
-        });
+        }
+        void set_function() {
+            if (this->function_number_->has_state() && this->function_value_number_->has_state() && this->function_unit_number_->has_state())
+                this->controller->set_function(this->function_number_->state, this->function_value_number_->state, this->function_unit_number_->state);
+        }
 
         FujitsuHalcyonController(uart::IDFUARTComponent *parent, uint8_t controller_address) : uart::UARTDevice(parent), controller_address_(controller_address) {}
 
@@ -148,6 +153,15 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         switch_::Switch* use_sensor_switch_{nullptr};
         binary_sensor::BinarySensor* filter_sensor_{nullptr};
         sensor::Sensor* remote_sensor_{nullptr};
+        binary_sensor::BinarySensor* standby_sensor_{nullptr};
+        binary_sensor::BinarySensor* error_sensor_{nullptr};
+        binary_sensor::BinarySensor* connected_sensor_{nullptr};
+        text_sensor::TextSensor* error_code_sensor_{nullptr};
+        text_sensor::TextSensor* initialization_sensor_{nullptr};
+        text_sensor::TextSensor* supported_features_sensor_{nullptr};
+        number::Number* function_number_{nullptr};
+        number::Number* function_value_number_{nullptr};
+        number::Number* function_unit_number_{nullptr};
         std::array<switch_::Switch*, fujitsu_general::airstage::h::MaxZone> zone_switches_{};
         switch_::Switch* zone_group_day_switch_{nullptr};
         switch_::Switch* zone_group_night_switch_{nullptr};
@@ -236,6 +250,28 @@ class ZoneGroupNightSwitch : public switch_::Switch, public Parented<FujitsuHalc
         void write_state(bool state) override {
             this->publish_state(this->parent_->set_zone_group_night(state) ? state : this->state);
         }
+};
+
+// Always-present controls, created inline in python.
+class ReinitializeButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->reinitialize(); }
+};
+
+class GetFunctionButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->get_function(); }
+};
+
+class SetFunctionButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->set_function(); }
+};
+
+// Raw function register value, stored as an integer.
+class FunctionNumber : public number::Number {
+    protected:
+        void control(float value) override { this->publish_state((int) value); }
 };
 
 }
