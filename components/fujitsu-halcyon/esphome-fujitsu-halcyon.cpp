@@ -11,7 +11,7 @@
 
 namespace esphome::fujitsu_general_airstage_h_controller {
 
-static const auto TAG = "fujitsu_halcyon";
+static const char* TAG = "fujitsu_halcyon";
 
 // If we are receiving from the bus but have not been handed a transmit token
 // within this window, control commands cannot be delivered (the unit is
@@ -262,10 +262,7 @@ void FujitsuHalcyonController::dump_config() {
             ESP_LOGCONFIG(TAG, "    - Zones: %s", buf[0] ? buf : "NONE");
             ESP_LOGCONFIG(TAG, "        Common Zone: %s", zones.ZoneCommon ? "YES" : "NO");
         }
-    }
 
-    if (this->controller->is_initialized()) {
-        auto& features = this->controller->get_features();
         if (features.FilterTimer && this->filter_sensor_ != nullptr)
             ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor_->state ? "EXPIRED" : "OK");
         if (features.SensorSwitching && this->use_sensor_switch_ != nullptr)
