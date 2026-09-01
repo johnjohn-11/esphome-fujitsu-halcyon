@@ -47,6 +47,10 @@ uart:
   rx_pin: GPIO19  # Device dependent
   baud_rate: 500
   parity: EVEN
+  # The protocol depends on these for packet framing. The component auto-applies
+  # them if omitted, they are shown here so the requirement is visible.
+  rx_timeout: 2
+  rx_full_threshold: 16
 
 climate:
 - platform: fujitsu-halcyon

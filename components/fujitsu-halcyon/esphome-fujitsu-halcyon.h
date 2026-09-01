@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <memory>
 
 #include <esphome/core/component.h>
