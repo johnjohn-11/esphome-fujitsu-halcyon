@@ -26,7 +26,6 @@ from esphome.const import (
     CONF_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_HUMIDITY_SENSOR,
-    CONF_INTERNAL,
     CONF_MODE,
     CONF_NAME,
     CONF_UART_ID,
@@ -101,6 +100,8 @@ CONF_ZONE_7 = "zone_7"
 CONF_ZONE_8 = "zone_8"
 CONF_ZONE_GROUP_DAY = "zone_group_day"
 CONF_ZONE_GROUP_NIGHT = "zone_group_night"
+ZONE_KEYS = (CONF_ZONE_1, CONF_ZONE_2, CONF_ZONE_3, CONF_ZONE_4,
+             CONF_ZONE_5, CONF_ZONE_6, CONF_ZONE_7, CONF_ZONE_8)
 
 CONF_FUNCTION = "function"
 CONF_FUNCTION_VALUE = "function_value"
@@ -108,6 +109,11 @@ CONF_FUNCTION_UNIT = "function_unit"
 CONF_GET_FUNCTION = "get_function"
 CONF_SET_FUNCTION = "set_function"
 
+# Feature-dependent entities (louvers, filter, use sensor, remote sensor, zones)
+# are declared explicitly in YAML and created only when present (see to_code),
+# the standard ESPHome pattern. The entity set stays static at config time and
+# there is no deprecated runtime set_internal() reveal. An undeclared entity does
+# not exist. Core diagnostics and the function controls stay always present.
 BinarySensor = cg.esphome_ns.class_("BinarySensor", cg.Component, binary_sensor.BinarySensor)
 TextSensor = cg.esphome_ns.class_("TextSensor", cg.Component, text_sensor.TextSensor)
 Sensor = cg.esphome_ns.class_("Sensor", cg.Component, sensor.Sensor)
@@ -115,14 +121,33 @@ Sensor = cg.esphome_ns.class_("Sensor", cg.Component, sensor.Sensor)
 custom_ns = cg.esphome_ns.namespace("custom")
 CustomButton = custom_ns.class_("CustomButton", cg.Component, button.Button)
 CustomNumber = custom_ns.class_("CustomNumber", cg.Component, number.Number)
-CustomSwitch = custom_ns.class_("CustomSwitch", cg.Component, switch.Switch)
 fujitsu_general_airstage_h_controller_ns = cg.esphome_ns.namespace("fujitsu_general_airstage_h_controller")
 FujitsuHalcyonController = fujitsu_general_airstage_h_controller_ns.class_("FujitsuHalcyonController", cg.Component, climate.Climate, uart.UARTDevice)
+
+# Concrete feature entities created in python only when declared. Each is Parented
+# to the controller and calls it to act or to publish unit state.
+AdvanceVerticalLouverButton = fujitsu_general_airstage_h_controller_ns.class_("AdvanceVerticalLouverButton", button.Button)
+AdvanceHorizontalLouverButton = fujitsu_general_airstage_h_controller_ns.class_("AdvanceHorizontalLouverButton", button.Button)
+UseSensorSwitch = fujitsu_general_airstage_h_controller_ns.class_("UseSensorSwitch", switch.Switch)
+ResetFilterButton = fujitsu_general_airstage_h_controller_ns.class_("ResetFilterButton", button.Button)
+ZoneSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneSwitch", switch.Switch)
+ZoneGroupDaySwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupDaySwitch", switch.Switch)
+ZoneGroupNightSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupNightSwitch", switch.Switch)
 
 PACKET_FRAME_SIZE = 8
 UART_INTER_PACKET_SYMBOL_SPACING = 2
 
 COMPONENT_NAME = __name__.split('.')[-2]
+
+def _feature_entity(schema, default_name):
+    # A feature entity that is created only when declared. Declaring the key,
+    # even empty (`key:`), applies a default name. Use `key: {name: "..."}` to
+    # customize it.
+    def _normalize(value):
+        value = {} if value is None else dict(value)
+        value.setdefault(CONF_NAME, default_name)
+        return value
+    return cv.All(_normalize, schema)
 
 CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
     {
@@ -159,18 +184,19 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_USE_SENSOR, default={CONF_NAME: "Use Sensor", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
+        # Feature-dependent entities. Created only when declared. Declaring a key
+        # (even empty) uses a default name, override with `key: {name: "..."}`.
+        cv.Optional(CONF_USE_SENSOR): _feature_entity(switch.switch_schema(
+            UseSensorSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="RESTORE_DEFAULT_OFF"
-        ),
-        cv.Optional(CONF_REMOTE_SENSOR, default={CONF_NAME: "Remote Temperature Sensor", CONF_INTERNAL: True}): sensor.sensor_schema(
-            Sensor,
+        ), "Use Sensor"),
+        cv.Optional(CONF_REMOTE_SENSOR): _feature_entity(sensor.sensor_schema(
             unit_of_measurement=UNIT_CELSIUS,
             device_class=DEVICE_CLASS_TEMPERATURE,
             state_class=STATE_CLASS_MEASUREMENT,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
-        ),
+        ), "Remote Temperature Sensor"),
         cv.Optional(CONF_STANDBY_MODE, default={CONF_NAME: "Standby Mode"}): binary_sensor.binary_sensor_schema(
             BinarySensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
@@ -188,21 +214,20 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
-        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER, default={CONF_NAME: "Advance Vertical Louver", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton
-        ),
-        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER, default={CONF_NAME: "Advance Horizontal Louver", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton
-        ),
-        cv.Optional(CONF_RESET_FILTER_TIMER, default={CONF_NAME: "Reset Filter Timer", CONF_INTERNAL: True}): button.button_schema(
-            CustomButton,
+        cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER): _feature_entity(button.button_schema(
+            AdvanceVerticalLouverButton
+        ), "Advance Vertical Louver"),
+        cv.Optional(CONF_ADVANCE_HORIZONTAL_LOUVER): _feature_entity(button.button_schema(
+            AdvanceHorizontalLouverButton
+        ), "Advance Horizontal Louver"),
+        cv.Optional(CONF_RESET_FILTER_TIMER): _feature_entity(button.button_schema(
+            ResetFilterButton,
             entity_category=ENTITY_CATEGORY_CONFIG
-        ),
-        cv.Optional(CONF_FILTER_TIMER_EXPIRED, default={CONF_NAME: "Filter Timer Expired", CONF_INTERNAL: True}): binary_sensor.binary_sensor_schema(
-            BinarySensor,
+        ), "Reset Filter Timer"),
+        cv.Optional(CONF_FILTER_TIMER_EXPIRED): _feature_entity(binary_sensor.binary_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
-        ),
+        ), "Filter Timer Expired"),
         cv.Optional(CONF_REINITIALIZE, default={CONF_NAME: "Reinitialize"}): button.button_schema(
             CustomButton,
             entity_category=ENTITY_CATEGORY_CONFIG,
@@ -216,56 +241,24 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             TextSensor,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
-        cv.Optional(CONF_ZONE_1, default={CONF_NAME: "Zone 1", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
+        **{
+            cv.Optional(key): _feature_entity(switch.switch_schema(
+                ZoneSwitch,
+                entity_category=ENTITY_CATEGORY_CONFIG,
+                default_restore_mode="RESTORE_DEFAULT_ON"
+            ), f"Zone {i}")
+            for i, key in enumerate(ZONE_KEYS, start=1)
+        },
+        cv.Optional(CONF_ZONE_GROUP_DAY): _feature_entity(switch.switch_schema(
+            ZoneGroupDaySwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_2, default={CONF_NAME: "Zone 2", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
+        ), "Zone Group Day"),
+        cv.Optional(CONF_ZONE_GROUP_NIGHT): _feature_entity(switch.switch_schema(
+            ZoneGroupNightSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_3, default={CONF_NAME: "Zone 3", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_4, default={CONF_NAME: "Zone 4", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_5, default={CONF_NAME: "Zone 5", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_6, default={CONF_NAME: "Zone 6", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_7, default={CONF_NAME: "Zone 7", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_8, default={CONF_NAME: "Zone 8", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_GROUP_DAY, default={CONF_NAME: "Zone Group Day", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
-        cv.Optional(CONF_ZONE_GROUP_NIGHT, default={CONF_NAME: "Zone Group Night", CONF_INTERNAL: True}): switch.switch_schema(
-            CustomSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
-        ),
+        ), "Zone Group Night"),
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
 
@@ -378,6 +371,7 @@ async def to_code(config: ConfigType) -> None:
     if CONF_ECONOMY_MODE in config:
         cg.add(var.set_economy_mode(config[CONF_ECONOMY_MODE]))
 
+    # Always-present diagnostics and controls.
     varx = cg.Pvariable(config[CONF_STANDBY_MODE][CONF_ID], var.standby_sensor)
     await binary_sensor.register_binary_sensor(varx, config[CONF_STANDBY_MODE])
 
@@ -390,26 +384,11 @@ async def to_code(config: ConfigType) -> None:
     varx = cg.Pvariable(config[CONF_INITIALIZATION_STAGE][CONF_ID], var.initialization_sensor)
     await text_sensor.register_text_sensor(varx, config[CONF_INITIALIZATION_STAGE])
 
-    varx = cg.Pvariable(config[CONF_USE_SENSOR][CONF_ID], var.use_sensor_switch)
-    await switch.register_switch(varx, config[CONF_USE_SENSOR])
-
     varx = cg.Pvariable(config[CONF_GET_FUNCTION][CONF_ID], var.get_function)
     await button.register_button(varx, config[CONF_GET_FUNCTION])
 
     varx = cg.Pvariable(config[CONF_SET_FUNCTION][CONF_ID], var.set_function)
     await button.register_button(varx, config[CONF_SET_FUNCTION])
-
-    varx = cg.Pvariable(config[CONF_ADVANCE_VERTICAL_LOUVER][CONF_ID], var.advance_vertical_louver_button)
-    await button.register_button(varx, config[CONF_ADVANCE_VERTICAL_LOUVER])
-
-    varx = cg.Pvariable(config[CONF_ADVANCE_HORIZONTAL_LOUVER][CONF_ID], var.advance_horizontal_louver_button)
-    await button.register_button(varx, config[CONF_ADVANCE_HORIZONTAL_LOUVER])
-
-    varx = cg.Pvariable(config[CONF_RESET_FILTER_TIMER][CONF_ID], var.reset_filter_button)
-    await button.register_button(varx, config[CONF_RESET_FILTER_TIMER])
-
-    varx = cg.Pvariable(config[CONF_FILTER_TIMER_EXPIRED][CONF_ID], var.filter_sensor)
-    await binary_sensor.register_binary_sensor(varx, config[CONF_FILTER_TIMER_EXPIRED])
 
     varx = cg.Pvariable(config[CONF_REINITIALIZE][CONF_ID], var.reinitialize_button)
     await button.register_button(varx, config[CONF_REINITIALIZE])
@@ -419,9 +398,6 @@ async def to_code(config: ConfigType) -> None:
 
     varx = cg.Pvariable(config[CONF_SUPPORTED_FEATURES][CONF_ID], var.supported_features_sensor)
     await text_sensor.register_text_sensor(varx, config[CONF_SUPPORTED_FEATURES])
-
-    varx = cg.Pvariable(config[CONF_REMOTE_SENSOR][CONF_ID], var.remote_sensor)
-    await sensor.register_sensor(varx, config[CONF_REMOTE_SENSOR])
 
     varx = cg.Pvariable(config[CONF_FUNCTION][CONF_ID], var.function)
     await number.register_number(
@@ -450,35 +426,62 @@ async def to_code(config: ConfigType) -> None:
         step=1
     )
 
-    varx = cg.Pvariable(config[CONF_ZONE_1][CONF_ID], var.zone_switches[0])
-    await switch.register_switch(varx, config[CONF_ZONE_1])
+    # Feature-dependent entities. Registered only when declared in YAML, so an
+    # undeclared entity is never exposed to Home Assistant. No runtime reveal.
+    # These are created here in python, so nothing lives in the header when the
+    # entity is not declared. Each is parented to the controller.
+    if CONF_ADVANCE_VERTICAL_LOUVER in config:
+        b = await button.new_button(config[CONF_ADVANCE_VERTICAL_LOUVER])
+        await cg.register_parented(b, var)
+        cg.add(var.set_louver_v_declared(True))
 
-    varx = cg.Pvariable(config[CONF_ZONE_2][CONF_ID], var.zone_switches[1])
-    await switch.register_switch(varx, config[CONF_ZONE_2])
+    if CONF_ADVANCE_HORIZONTAL_LOUVER in config:
+        b = await button.new_button(config[CONF_ADVANCE_HORIZONTAL_LOUVER])
+        await cg.register_parented(b, var)
+        cg.add(var.set_louver_h_declared(True))
 
-    varx = cg.Pvariable(config[CONF_ZONE_3][CONF_ID], var.zone_switches[2])
-    await switch.register_switch(varx, config[CONF_ZONE_3])
+    if CONF_USE_SENSOR in config:
+        sw = await switch.new_switch(config[CONF_USE_SENSOR])
+        await cg.register_parented(sw, var)
+        cg.add(var.set_use_sensor_switch(sw))
+        cg.add(var.set_use_sensor_declared(True))
 
-    varx = cg.Pvariable(config[CONF_ZONE_4][CONF_ID], var.zone_switches[3])
-    await switch.register_switch(varx, config[CONF_ZONE_4])
+    if CONF_REMOTE_SENSOR in config:
+        s = await sensor.new_sensor(config[CONF_REMOTE_SENSOR])
+        cg.add(var.set_remote_sensor(s))
 
-    varx = cg.Pvariable(config[CONF_ZONE_5][CONF_ID], var.zone_switches[4])
-    await switch.register_switch(varx, config[CONF_ZONE_5])
+    if CONF_RESET_FILTER_TIMER in config:
+        b = await button.new_button(config[CONF_RESET_FILTER_TIMER])
+        await cg.register_parented(b, var)
 
-    varx = cg.Pvariable(config[CONF_ZONE_6][CONF_ID], var.zone_switches[5])
-    await switch.register_switch(varx, config[CONF_ZONE_6])
+    if CONF_FILTER_TIMER_EXPIRED in config:
+        bs = await binary_sensor.new_binary_sensor(config[CONF_FILTER_TIMER_EXPIRED])
+        cg.add(var.set_filter_sensor(bs))
 
-    varx = cg.Pvariable(config[CONF_ZONE_7][CONF_ID], var.zone_switches[6])
-    await switch.register_switch(varx, config[CONF_ZONE_7])
+    for i, zone_key in enumerate(ZONE_KEYS):
+        if zone_key in config:
+            sw = await switch.new_switch(config[zone_key])
+            await cg.register_parented(sw, var)
+            cg.add(sw.set_zone_index(i))
+            cg.add(var.set_zone_switch(i, sw))
 
-    varx = cg.Pvariable(config[CONF_ZONE_8][CONF_ID], var.zone_switches[7])
-    await switch.register_switch(varx, config[CONF_ZONE_8])
+    if CONF_ZONE_GROUP_DAY in config:
+        sw = await switch.new_switch(config[CONF_ZONE_GROUP_DAY])
+        await cg.register_parented(sw, var)
+        cg.add(var.set_zone_group_day_switch(sw))
 
-    varx = cg.Pvariable(config[CONF_ZONE_GROUP_DAY][CONF_ID], var.zone_group_day_switch)
-    await switch.register_switch(varx, config[CONF_ZONE_GROUP_DAY])
+    if CONF_ZONE_GROUP_NIGHT in config:
+        sw = await switch.new_switch(config[CONF_ZONE_GROUP_NIGHT])
+        await cg.register_parented(sw, var)
+        cg.add(var.set_zone_group_night_switch(sw))
 
-    varx = cg.Pvariable(config[CONF_ZONE_GROUP_NIGHT][CONF_ID], var.zone_group_night_switch)
-    await switch.register_switch(varx, config[CONF_ZONE_GROUP_NIGHT])
+    # Record which feature entities were declared, so the component can warn at
+    # startup if the indoor unit does not actually report that feature. (use_sensor
+    # and louver flags are set above, next to where those entities are created.)
+    if CONF_FILTER_TIMER_EXPIRED in config or CONF_RESET_FILTER_TIMER in config:
+        cg.add(var.set_filter_entity_declared(True))
+    if any(z in config for z in (*ZONE_KEYS, CONF_ZONE_GROUP_DAY, CONF_ZONE_GROUP_NIGHT)):
+        cg.add(var.set_zones_declared(True))
 
     if CONF_TEMPERATURE_SENSOR in config:
         cg.add(var.set_temperature_sensor(await cg.get_variable(config[CONF_TEMPERATURE_SENSOR])))

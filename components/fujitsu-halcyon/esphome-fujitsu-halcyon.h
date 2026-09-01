@@ -4,9 +4,11 @@
 #include <memory>
 
 #include <esphome/core/component.h>
+#include <esphome/core/helpers.h>
 #include <esphome/components/binary_sensor/binary_sensor.h>
 #include <esphome/components/climate/climate.h>
 #include <esphome/components/sensor/sensor.h>
+#include <esphome/components/switch/switch.h>
 #include <esphome/components/text_sensor/text_sensor.h>
 #include <esphome/components/uart/uart.h>
 #include <esphome/components/uart/uart_component_esp_idf.h>
@@ -17,7 +19,6 @@
 
 #include "esphome-custom-button.h"
 #include "esphome-custom-number.h"
-#include "esphome-custom-switch.h"
 #include "Controller.h"
 
 namespace esphome::fujitsu_general_airstage_h_controller {
@@ -29,31 +30,35 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
 #endif
     public:
         binary_sensor::BinarySensor* standby_sensor = new binary_sensor::BinarySensor();
-        binary_sensor::BinarySensor* filter_sensor = new binary_sensor::BinarySensor();
         binary_sensor::BinarySensor* error_sensor = new binary_sensor::BinarySensor();
         binary_sensor::BinarySensor* connected_sensor = new binary_sensor::BinarySensor();
         text_sensor::TextSensor* error_code_sensor = new text_sensor::TextSensor();
         text_sensor::TextSensor* initialization_sensor = new text_sensor::TextSensor();
         text_sensor::TextSensor* supported_features_sensor = new text_sensor::TextSensor();
-        sensor::Sensor* remote_sensor = new sensor::Sensor();
 
         custom::CustomButton* reinitialize_button = new custom::CustomButton([this]() { this->controller->reinitialize(); });
-        custom::CustomButton* reset_filter_button = new custom::CustomButton([this]() { this->controller->reset_filter(this->ignore_lock_); });
-        custom::CustomButton* advance_vertical_louver_button = new custom::CustomButton([this]() { this->controller->advance_vertical_louver(this->ignore_lock_); });
-        custom::CustomButton* advance_horizontal_louver_button = new custom::CustomButton([this]() { this->controller->advance_horizontal_louver(this->ignore_lock_); });
-        custom::CustomSwitch* use_sensor_switch = new custom::CustomSwitch([this](bool state) { return this->controller->use_sensor(state, this->ignore_lock_); });
+        // Called by the ResetFilterButton entity (created inline in python, see climate.py).
+        void reset_filter() { this->controller->reset_filter(this->ignore_lock_); }
+        // Called by the AdvanceVerticalLouverButton / AdvanceHorizontalLouverButton
+        // entities, created inline in python and parented to this controller.
+        void advance_vertical_louver() { this->controller->advance_vertical_louver(this->ignore_lock_); }
+        void advance_horizontal_louver() { this->controller->advance_horizontal_louver(this->ignore_lock_); }
+        // The use_sensor switch is created inline in python and parented to this
+        // controller. It calls use_sensor() to write, and set_use_sensor_switch()
+        // gives the controller a pointer so it can publish the unit state back.
+        bool use_sensor(bool state) { return this->controller->use_sensor(state, this->ignore_lock_); }
+        void set_use_sensor_switch(switch_::Switch* sw) { this->use_sensor_switch_ = sw; }
 
-        std::array<custom::CustomSwitch*, fujitsu_general::airstage::h::MaxZone> zone_switches = [this] {
-            std::array<custom::CustomSwitch*, fujitsu_general::airstage::h::MaxZone> switches;
-
-            for (size_t i = 0; i < switches.size(); i++)
-                switches[i] = new custom::CustomSwitch([this, i](bool state) { return this->controller->set_zone(i, state, this->ignore_lock_); });
-
-            return switches;
-        }();
-
-        custom::CustomSwitch* zone_group_day_switch = new custom::CustomSwitch([this](bool state) { return this->controller->set_zone_group_day(state, this->ignore_lock_); });
-        custom::CustomSwitch* zone_group_night_switch = new custom::CustomSwitch([this](bool state) { return this->controller->set_zone_group_night(state, this->ignore_lock_); });
+        // Called by / set on the zone switches and the filter binary sensor, which are
+        // created inline in python (switches parented, the sensor set through a pointer).
+        bool set_zone(uint8_t zone, bool state) { return this->controller->set_zone(zone, state, this->ignore_lock_); }
+        bool set_zone_group_day(bool state) { return this->controller->set_zone_group_day(state, this->ignore_lock_); }
+        bool set_zone_group_night(bool state) { return this->controller->set_zone_group_night(state, this->ignore_lock_); }
+        void set_zone_switch(uint8_t i, switch_::Switch* sw) { this->zone_switches_[i] = sw; }
+        void set_zone_group_day_switch(switch_::Switch* sw) { this->zone_group_day_switch_ = sw; }
+        void set_zone_group_night_switch(switch_::Switch* sw) { this->zone_group_night_switch_ = sw; }
+        void set_filter_sensor(binary_sensor::BinarySensor* s) { this->filter_sensor_ = s; }
+        void set_remote_sensor(sensor::Sensor* s) { this->remote_sensor_ = s; }
 
         custom::CustomNumber* function = new custom::CustomNumber([this](float state) { return int(state); });
         custom::CustomNumber* function_value = new custom::CustomNumber([this](float state) { return int(state); });
@@ -75,7 +80,6 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         void setup() override;
         void dump_config() override;
         float get_setup_priority() const override { return esphome::setup_priority::DATA; }
-//        bool can_proceed() { return this->is_failed() || this->controller->is_initialized(); }
 
         void control(const climate::ClimateCall& call) override;
         climate::ClimateTraits traits() override;
@@ -112,6 +116,14 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         void set_maintenance(bool v)      { this->features_override_.Maintenance     = v; }
         void set_economy_mode(bool v)     { this->features_override_.EconomyMode     = v; }
 
+        // Track which feature entities the user declared in YAML, to warn at
+        // initialization if the unit does not actually report that feature.
+        void set_use_sensor_declared(bool v)    { this->use_sensor_declared_ = v; }
+        void set_filter_entity_declared(bool v) { this->filter_entity_declared_ = v; }
+        void set_louver_v_declared(bool v)      { this->louver_v_declared_ = v; }
+        void set_louver_h_declared(bool v)      { this->louver_h_declared_ = v; }
+        void set_zones_declared(bool v)         { this->zones_declared_ = v; }
+
     protected:
         uint8_t controller_address_{};
         uint8_t temperature_controller_address_{};
@@ -130,6 +142,22 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         // overridden by YAML keeps the in-code default. Applied to Controller in setup().
         bool autoconf_ = true;
         fujitsu_general::airstage::h::Features features_override_ = fujitsu_general::airstage::h::DefaultFeatures;
+
+        // Back-pointers to feature entities created inline in python, null when the
+        // matching key is absent. The hub publishes unit state through them.
+        switch_::Switch* use_sensor_switch_{nullptr};
+        binary_sensor::BinarySensor* filter_sensor_{nullptr};
+        sensor::Sensor* remote_sensor_{nullptr};
+        std::array<switch_::Switch*, fujitsu_general::airstage::h::MaxZone> zone_switches_{};
+        switch_::Switch* zone_group_day_switch_{nullptr};
+        switch_::Switch* zone_group_night_switch_{nullptr};
+
+        // Set from to_code() when the corresponding feature entity is declared.
+        bool use_sensor_declared_{false};
+        bool filter_entity_declared_{false};
+        bool louver_v_declared_{false};
+        bool louver_h_declared_{false};
+        bool zones_declared_{false};
 
     private:
         // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.
@@ -157,6 +185,57 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         static constexpr uint8_t uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) noexcept;
         static constexpr uint8_t uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) noexcept;
         static constexpr uart::UARTParityOptions uart_parity_to_uart_config_parity(uart_parity_t parity) noexcept;
+};
+
+// Feature entities created in python only when declared, parented to the controller
+// with register_parented. They call it back in press_action / write_state.
+class AdvanceVerticalLouverButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->advance_vertical_louver(); }
+};
+
+class AdvanceHorizontalLouverButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->advance_horizontal_louver(); }
+};
+
+// The use_sensor switch. write_state() routes the request to the unit and publishes
+// the resulting state (or reverts to the current state if the unit rejected it).
+class UseSensorSwitch : public switch_::Switch, public Parented<FujitsuHalcyonController> {
+    protected:
+        void write_state(bool state) override {
+            this->publish_state(this->parent_->use_sensor(state) ? state : this->state);
+        }
+};
+
+class ResetFilterButton : public button::Button, public Parented<FujitsuHalcyonController> {
+    protected:
+        void press_action() override { this->parent_->reset_filter(); }
+};
+
+// One class per zone, the zone index is set from to_code().
+class ZoneSwitch : public switch_::Switch, public Parented<FujitsuHalcyonController> {
+    public:
+        void set_zone_index(uint8_t zone) { this->zone_ = zone; }
+    protected:
+        void write_state(bool state) override {
+            this->publish_state(this->parent_->set_zone(this->zone_, state) ? state : this->state);
+        }
+        uint8_t zone_{0};
+};
+
+class ZoneGroupDaySwitch : public switch_::Switch, public Parented<FujitsuHalcyonController> {
+    protected:
+        void write_state(bool state) override {
+            this->publish_state(this->parent_->set_zone_group_day(state) ? state : this->state);
+        }
+};
+
+class ZoneGroupNightSwitch : public switch_::Switch, public Parented<FujitsuHalcyonController> {
+    protected:
+        void write_state(bool state) override {
+            this->publish_state(this->parent_->set_zone_group_night(state) ? state : this->state);
+        }
 };
 
 }
