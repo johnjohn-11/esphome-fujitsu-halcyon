@@ -99,7 +99,7 @@ void FujitsuHalcyonController::setup() {
     // Fahrenheit. Auto-detecting the unit is unreliable because
     // unit_of_measurement is lost when importing a Home Assistant sensor.
     if (this->temperature_sensor_ != nullptr) {
-        this->temperature_sensor_->add_on_raw_state_callback([this](float state) {
+        this->temperature_sensor_->add_on_state_callback([this](float state) {
             this->current_temperature = state;
             this->publish_state();
 
@@ -111,7 +111,7 @@ void FujitsuHalcyonController::setup() {
     }
 
     if (this->humidity_sensor_ != nullptr) {
-        this->humidity_sensor_->add_on_raw_state_callback([this](float state) {
+        this->humidity_sensor_->add_on_state_callback([this](float state) {
             this->current_humidity = state;
             this->publish_state();
         });
