@@ -141,7 +141,15 @@ def _feature_entity(schema, default_name):
     # even empty (`key:`), applies a default name. Use `key: {name: "..."}` to
     # customize it.
     def _normalize(value):
-        value = {} if value is None else dict(value)
+        if value is None:
+            value = {}
+        elif isinstance(value, dict):
+            value = dict(value)
+        else:
+            raise cv.Invalid(
+                "expected either an empty value or a mapping of options, "
+                f'for example `{{name: "{default_name}"}}`'
+            )
         value.setdefault(CONF_NAME, default_name)
         return value
     return cv.All(_normalize, schema)
