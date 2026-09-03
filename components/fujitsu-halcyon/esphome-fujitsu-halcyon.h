@@ -174,6 +174,13 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         bool louver_h_declared_{false};
         bool zones_declared_{false};
 
+        // The use_sensor switch is a plain Switch (not a Component), so nothing
+        // restores it on boot. Its restored state is read in setup() and applied
+        // once the unit confirms sensor switching, since a write before that is
+        // rejected while the feature flag is still false.
+        optional<bool> pending_use_sensor_{};
+        bool use_sensor_applied_{false};
+
     private:
         // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.
         // uart_set_mode failure), so dump_config()/traits() must null-check before

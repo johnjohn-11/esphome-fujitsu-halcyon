@@ -118,6 +118,12 @@ void FujitsuHalcyonController::setup() {
 
         this->current_humidity = this->humidity_sensor_->state;
     }
+
+    // Read the restored use_sensor state now (the switch is not a Component, so it
+    // is not restored on its own). It is applied to the unit later, once sensor
+    // switching is confirmed, in on_initialization_stage().
+    if (this->use_sensor_switch_ != nullptr)
+        this->pending_use_sensor_ = this->use_sensor_switch_->get_initial_state_with_restore_mode();
 }
 
 void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage) {
@@ -169,8 +175,18 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
         this->supported_features_sensor_->publish_state(buf);
     }
 
-    if (features.SensorSwitching && this->temperature_sensor_ != nullptr && this->use_sensor_switch_ != nullptr)
-        this->use_sensor_switch_->publish_state(this->use_sensor_switch_->state);
+    if (features.SensorSwitching && this->temperature_sensor_ != nullptr && this->use_sensor_switch_ != nullptr) {
+        if (!this->use_sensor_applied_) {
+            // Sensor switching is confirmed, so a write is no longer rejected.
+            // Apply the state restored in setup() once, then reflect it in HA.
+            bool state = this->pending_use_sensor_.value_or(false);
+            this->controller->use_sensor(state, this->ignore_lock_);
+            this->use_sensor_switch_->publish_state(state);
+            this->use_sensor_applied_ = true;
+        } else {
+            this->use_sensor_switch_->publish_state(this->use_sensor_switch_->state);
+        }
+    }
 
     if (features.FilterTimer && this->filter_sensor_ != nullptr && this->filter_sensor_->has_state())
         this->filter_sensor_->publish_state(this->filter_sensor_->state);
