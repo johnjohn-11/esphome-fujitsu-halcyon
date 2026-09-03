@@ -252,7 +252,7 @@ void FujitsuHalcyonController::dump_config() {
             auto& zones = this->controller->get_zones();
 
             // Build a comma-separated list of enabled zones
-            char buf[3 * zones.EnabledZones.size() + 1];
+            char buf[3 * fujitsu_general::airstage::h::MaxZone + 1];
             int offset = 0;
             for (size_t i = 0; i < zones.EnabledZones.size() && offset < static_cast<int>(sizeof(buf)); i++)
                 if (zones.EnabledZones[i])
@@ -289,7 +289,11 @@ climate::ClimateTraits FujitsuHalcyonController::traits() {
     auto traits = ClimateTraits();
 
     // Target temperature / Setpoint
-    traits.set_visual_temperature_step(1);
+    // The setpoint is whole degrees, but the current temperature has half-degree
+    // resolution. Set the two steps separately so Home Assistant does not round
+    // the displayed current temperature to whole degrees.
+    traits.set_visual_target_temperature_step(1);
+    traits.set_visual_current_temperature_step(0.5);
     traits.set_visual_min_temperature(fujitsu_general::airstage::h::MinSetpoint);
     traits.set_visual_max_temperature(fujitsu_general::airstage::h::MaxSetpoint);
 
@@ -362,7 +366,7 @@ void FujitsuHalcyonController::control(const climate::ClimateCall& call) {
 
     // Target temperature / Setpoint
     if (call.get_target_temperature().has_value())
-        this->controller->set_setpoint(call.get_target_temperature().value(), this->ignore_lock_);
+        this->controller->set_setpoint(std::lround(call.get_target_temperature().value()), this->ignore_lock_);
 
     // Economy mode
     if (call.get_preset().has_value())
