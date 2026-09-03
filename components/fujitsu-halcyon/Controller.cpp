@@ -20,7 +20,7 @@ void Controller::process_uart_data() {
         // Discard partial frame
         if (auto discard = buffer_len % buffer.size()) {
             this->uart_read_bytes(buffer.data(), discard);
-            ESP_LOGW(TAG, "Discarded %d bytes", discard);
+            ESP_LOGW(TAG, "Discarded %zu bytes", discard);
         }
 
         // For each frame
@@ -286,7 +286,12 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
 }
 
 void Controller::set_current_temperature(float temperature) {
-    this->changed_configuration.Controller.Temperature = std::clamp(std::isfinite(temperature) ? temperature : 0, MinTemperature, MaxTemperature);
+    // An unavailable source sensor reports NaN. Keep the last good value rather
+    // than sending 0 C, which would tell the unit the room is at freezing.
+    if (!std::isfinite(temperature))
+        return;
+
+    this->changed_configuration.Controller.Temperature = std::clamp(temperature, MinTemperature, MaxTemperature);
     // Do not set configuration_changed flag - does not require write bit set
 }
 
