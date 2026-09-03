@@ -165,6 +165,19 @@ Core entities (the climate control, the diagnostics, and the function controls) 
 
 Not sure what your unit has? Flash the basic configuration first and read the **Supported Features** diagnostic sensor. It lists exactly what the indoor unit reports. Then declare the matching entities.
 
+Each name in that sensor maps to the entities you declare. Some features expose more than one entity, and the entity keys are named for what they do rather than after the reported feature.
+
+| Reported in Supported Features | Capability override (only if the unit does not report Features) | Entities to declare |
+|---|---|---|
+| Sensor Switching | `sensor_switching` | `use_sensor` |
+| Filter Timer | `filter_timer` | `filter_timer_expired`, `reset_filter_timer` |
+| Vertical Louvers | | `advance_vertical_louver` |
+| Horizontal Louvers | | `advance_horizontal_louver` |
+| Zones | | `zone_1` to `zone_8`, `zone_group_day`, `zone_group_night` |
+| Economy | `economy_mode` | Eco preset on the climate entity, no separate entity |
+| Maintenance | `maintenance` | diagnostic only, no entity |
+| Not reported, needs another wall controller on the bus | | `remote_sensor` (see `temperature_controller_address`) |
+
 If you declare a feature entity that the indoor unit does not actually report, the component logs a warning once at startup (for example, `zone_* declared but this unit does not report zone support`). The entity is still created, but it will not reflect or control that unsupported feature. For `use_sensor` it also warns if no `temperature_sensor_id` is configured, since the switch would then have no effect.
 
 ### Climate
@@ -180,7 +193,7 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Error | Binary sensor | Enabled | Indicates an active fault on the indoor unit |
 | Error Code | Text sensor | Enabled | Fault code in `AA BB.CCC` (unit address + error code + extended error code) |
 | Initialization Stage | Text sensor | Enabled | Current initialization progress, (7/7) indicates complete |
-| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| V.Louvers \| H.Louvers \| Zones \|` |
+| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones \|` |
 | Remote Temperature Sensor | Sensor | If declared | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
 | Filter Timer Expired | Binary sensor | If declared | Set when the filter maintenance timer has elapsed |
 

@@ -158,13 +158,13 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             features.FanSpeed.Low    ? " Low"    : "",
             features.FanSpeed.Quiet  ? " Quiet"  : "",
 
-            features.EconomyMode       ? " | Economy"          : "",
-            features.FilterTimer       ? " | Filter Timer"     : "",
-            features.SensorSwitching   ? " | Sensor Switching" : "",
-            features.Maintenance       ? " | Maintenance"      : "",
-            features.VerticalLouvers   ? " | V.Louvers"        : "",
-            features.HorizontalLouvers ? " | H.Louvers"        : "",
-            features.Zones             ? " | Zones"            : ""
+            features.EconomyMode       ? " | Economy"            : "",
+            features.FilterTimer       ? " | Filter Timer"       : "",
+            features.SensorSwitching   ? " | Sensor Switching"   : "",
+            features.Maintenance       ? " | Maintenance"        : "",
+            features.VerticalLouvers   ? " | Vertical Louvers"   : "",
+            features.HorizontalLouvers ? " | Horizontal Louvers" : "",
+            features.Zones             ? " | Zones"              : ""
         );
         this->supported_features_sensor_->publish_state(buf);
     }
