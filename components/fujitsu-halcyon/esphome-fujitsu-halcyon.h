@@ -221,10 +221,6 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         static constexpr fujitsu_general::airstage::h::ModeEnum climate_mode_to_mode(climate::ClimateMode mode) noexcept;
         static constexpr fujitsu_general::airstage::h::FanSpeedEnum climate_fan_mode_to_fan_speed(climate::ClimateFanMode fan_speed) noexcept;
         static constexpr std::pair<bool, bool> climate_swing_mode_to_swing_mode(climate::ClimateSwingMode swing_mode) noexcept;
-
-        static constexpr uint8_t uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) noexcept;
-        static constexpr uint8_t uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) noexcept;
-        static constexpr uart::UARTParityOptions uart_parity_to_uart_config_parity(uart_parity_t parity) noexcept;
 };
 
 // Feature entities created in python only when declared, parented to the controller

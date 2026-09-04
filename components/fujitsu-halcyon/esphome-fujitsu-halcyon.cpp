@@ -361,13 +361,6 @@ void FujitsuHalcyonController::dump_config() {
     LOG_TZSP("  ", this);
 #endif
 
-    this->check_uart_settings(
-        fujitsu_general::airstage::h::UARTConfig.baud_rate,
-        this->uart_stop_bits_to_uart_config_stop_bits(fujitsu_general::airstage::h::UARTConfig.stop_bits),
-        this->uart_parity_to_uart_config_parity(fujitsu_general::airstage::h::UARTConfig.parity),
-        this->uart_data_bits_to_uart_config_data_bits(fujitsu_general::airstage::h::UARTConfig.data_bits)
-    );
-
     this->dump_traits_(TAG);
 }
 
@@ -709,34 +702,6 @@ constexpr std::pair<bool, bool> FujitsuHalcyonController::climate_swing_mode_to_
 
         // Should not get to this point
         default: return SwingMode(false, false);
-    }
-}
-
-constexpr uint8_t FujitsuHalcyonController::uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) {
-    switch (bits) {
-        case UART_DATA_5_BITS: return 5;
-        case UART_DATA_6_BITS: return 6;
-        case UART_DATA_7_BITS: return 7;
-
-        // ESPHome UART only supports 5, 6, 7, 8
-        default: return 8;
-    }
-}
-
-constexpr uint8_t FujitsuHalcyonController::uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) {
-    switch (bits) {
-        case UART_STOP_BITS_1: return 1;
-
-        // ESPHome UART only supports 1 and 2
-        default: return 2;
-    }
-}
-
-constexpr uart::UARTParityOptions FujitsuHalcyonController::uart_parity_to_uart_config_parity(uart_parity_t parity) {
-    switch (parity) {
-        case UART_PARITY_EVEN:  return uart::UART_CONFIG_PARITY_EVEN;
-        case UART_PARITY_ODD:   return uart::UART_CONFIG_PARITY_ODD;
-        default:                return uart::UART_CONFIG_PARITY_NONE;
     }
 }
 
