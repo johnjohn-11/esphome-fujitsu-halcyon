@@ -39,6 +39,9 @@ climate:
     name: None
     controller_address: 0
 
+    # Exercise the capability override codegen too.
+    supported_features: [FILTER_TIMER, SENSOR_SWITCHING, MAINTENANCE, ECONOMY]
+
     # Declare every optional feature entity so all of them are compiled, not just
     # the always-present ones.
     filter_timer_expired:

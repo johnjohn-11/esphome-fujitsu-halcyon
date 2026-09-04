@@ -154,14 +154,11 @@ climate:
     autoconf: false
 
     # Capabilities. Used only when the unit does not report a Features packet.
-    supported_modes:      [AUTO, COOL, HEAT, DRY, FAN]    # any subset
-    supported_fan_modes:  [AUTO, QUIET, LOW, MEDIUM, HIGH] # any subset
-    supported_swing_modes: [VERTICAL]                      # VERTICAL / HORIZONTAL / BOTH
-
-    filter_timer: true
-    sensor_switching: true
-    maintenance: true
-    economy_mode: true
+    # The words are the ones the Supported Features sensor prints.
+    supported_modes:       [AUTO, COOL, HEAT, DRY, FAN]     # any subset
+    supported_fan_modes:   [AUTO, QUIET, LOW, MEDIUM, HIGH] # any subset
+    supported_swing_modes: [VERTICAL]                       # VERTICAL / HORIZONTAL / BOTH
+    supported_features:    [FILTER_TIMER, SENSOR_SWITCHING, MAINTENANCE, ECONOMY]  # any subset
 ```
 
 Behavior matrix:
@@ -175,7 +172,7 @@ Behavior matrix:
 `IU` is the indoor unit. `DefaultFeatures` is the component's built-in fallback capability set, used when the unit does not report its own.
 
 > [!NOTE]
-> Capability keys are not entity keys. `filter_timer` and `sensor_switching` state what the unit supports, while `filter_timer_expired` and `use_sensor` create the entities. Zones are the exception, there is no capability key for them, so zone support has to come from the unit itself. Keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity is created but has no effect.
+> These lists state what the unit supports. They do not create entities, see [Home Assistant entities](#home-assistant-entities) for that. Zones cannot be stated here, zone support has to come from the unit itself, so keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity is created but has no effect.
 
 ## Home Assistant entities
 
@@ -185,15 +182,15 @@ Not sure what your unit has? Flash the basic configuration first and read the **
 
 Each name in that sensor maps to the entities you declare. Some features expose more than one entity, and the entity keys are named for what they do rather than after the reported feature.
 
-| Reported in Supported Features | Capability override (only if the unit does not report Features) | Entities to declare |
+| Reported in Supported Features | `supported_features` entry (only if the unit does not report Features) | Entities to declare |
 |---|---|---|
-| Sensor Switching | `sensor_switching` | `use_sensor` |
-| Filter Timer | `filter_timer` | `filter_timer_expired`, `reset_filter_timer` |
+| Sensor Switching | `SENSOR_SWITCHING` | `use_sensor` |
+| Filter Timer | `FILTER_TIMER` | `filter_timer_expired`, `reset_filter_timer` |
 | Vertical Louvers | | `advance_vertical_louver` |
 | Horizontal Louvers | | `advance_horizontal_louver` |
 | Zones | | `zone_1` to `zone_8`, `zone_group_day`, `zone_group_night` |
-| Economy | `economy_mode` | Eco preset on the climate entity, no separate entity |
-| Maintenance | `maintenance` | diagnostic only, no entity |
+| Economy | `ECONOMY` | Eco preset on the climate entity, no separate entity |
+| Maintenance | `MAINTENANCE` | diagnostic only, no entity |
 | Not reported, needs another wall controller on the bus | | `remote_sensor` (see `temperature_controller_address`) |
 
 If you declare a feature entity that the indoor unit does not actually report, the component logs a warning once at startup (for example, `zone_* declared but this unit does not report zone support`). The entity is still created, but it will not reflect or control that unsupported feature. For `use_sensor` it also warns if no `temperature_sensor_id` is configured, since the switch would then have no effect.

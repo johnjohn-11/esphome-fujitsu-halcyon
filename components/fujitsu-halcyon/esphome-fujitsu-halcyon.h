@@ -131,10 +131,12 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
             this->features_override_.VerticalLouvers   = vert;
             this->features_override_.HorizontalLouvers = horiz;
         }
-        void set_filter_timer(bool v)     { this->features_override_.FilterTimer     = v; }
-        void set_sensor_switching(bool v) { this->features_override_.SensorSwitching = v; }
-        void set_maintenance(bool v)      { this->features_override_.Maintenance     = v; }
-        void set_economy_mode(bool v)     { this->features_override_.EconomyMode     = v; }
+        void set_supported_features(bool filter_timer, bool sensor_switching, bool maintenance, bool economy) {
+            this->features_override_.FilterTimer     = filter_timer;
+            this->features_override_.SensorSwitching = sensor_switching;
+            this->features_override_.Maintenance     = maintenance;
+            this->features_override_.EconomyMode     = economy;
+        }
 
         // Track which feature entities the user declared in YAML, to warn at
         // initialization if the unit does not actually report that feature.

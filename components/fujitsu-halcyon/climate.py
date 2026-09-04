@@ -69,14 +69,13 @@ CONF_AUTOCONF = "autoconf"
 CONF_SUPPORTED_MODES = "supported_modes"
 CONF_SUPPORTED_FAN_MODES = "supported_fan_modes"
 CONF_SUPPORTED_SWING_MODES = "supported_swing_modes"
-CONF_FILTER_TIMER = "filter_timer"
-CONF_SENSOR_SWITCHING = "sensor_switching"
-CONF_MAINTENANCE = "maintenance"
-CONF_ECONOMY_MODE = "economy_mode"
+CONF_SUPPORTED_FEATURES = "supported_features"
 
 ALLOWED_MODES = {"AUTO", "HEAT", "FAN", "DRY", "COOL"}
 ALLOWED_FAN_MODES = {"QUIET", "LOW", "MEDIUM", "HIGH", "AUTO"}
 ALLOWED_SWING_MODES = {"VERTICAL", "HORIZONTAL", "BOTH"}
+# Same words as the Supported Features diagnostic sensor prints.
+ALLOWED_FEATURES = {"FILTER_TIMER", "SENSOR_SWITCHING", "MAINTENANCE", "ECONOMY"}
 
 CONF_STANDBY_MODE = "standby_mode"
 CONF_ERROR_CODE = "error_code"
@@ -89,7 +88,9 @@ CONF_RESET_FILTER_TIMER = "reset_filter_timer"
 CONF_FILTER_TIMER_EXPIRED = "filter_timer_expired"
 CONF_REINITIALIZE = "reinitialize"
 CONF_CONNECTED = "connected"
-CONF_SUPPORTED_FEATURES = "supported_features"
+# The diagnostic text sensor listing what the unit reports. Named apart from the
+# supported_features override list above.
+CONF_REPORTED_FEATURES = "reported_features"
 
 CONF_ZONE_1 = "zone_1"
 CONF_ZONE_2 = "zone_2"
@@ -174,10 +175,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_SUPPORTED_MODES): cv.ensure_list(cv.one_of(*ALLOWED_MODES, upper=True)),
         cv.Optional(CONF_SUPPORTED_FAN_MODES): cv.ensure_list(cv.one_of(*ALLOWED_FAN_MODES, upper=True)),
         cv.Optional(CONF_SUPPORTED_SWING_MODES): cv.ensure_list(cv.one_of(*ALLOWED_SWING_MODES, upper=True)),
-        cv.Optional(CONF_FILTER_TIMER): cv.boolean,
-        cv.Optional(CONF_SENSOR_SWITCHING): cv.boolean,
-        cv.Optional(CONF_MAINTENANCE): cv.boolean,
-        cv.Optional(CONF_ECONOMY_MODE): cv.boolean,
+        cv.Optional(CONF_SUPPORTED_FEATURES): cv.ensure_list(cv.one_of(*ALLOWED_FEATURES, upper=True)),
         cv.Optional(CONF_FUNCTION, default={CONF_NAME: "Function", CONF_MODE: "BOX"}): number.number_schema(
             FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
@@ -249,7 +247,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_CONNECTIVITY
         ),
-        cv.Optional(CONF_SUPPORTED_FEATURES, default={CONF_NAME: "Supported Features"}): text_sensor.text_sensor_schema(
+        cv.Optional(CONF_REPORTED_FEATURES, default={CONF_NAME: "Supported Features"}): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         **{
@@ -376,14 +374,12 @@ async def to_code(config: ConfigType) -> None:
         vertical = "VERTICAL" in swing_modes or "BOTH" in swing_modes
         horizontal = "HORIZONTAL" in swing_modes or "BOTH" in swing_modes
         cg.add(var.set_supported_swing_modes(vertical, horizontal))
-    if CONF_FILTER_TIMER in config:
-        cg.add(var.set_filter_timer(config[CONF_FILTER_TIMER]))
-    if CONF_SENSOR_SWITCHING in config:
-        cg.add(var.set_sensor_switching(config[CONF_SENSOR_SWITCHING]))
-    if CONF_MAINTENANCE in config:
-        cg.add(var.set_maintenance(config[CONF_MAINTENANCE]))
-    if CONF_ECONOMY_MODE in config:
-        cg.add(var.set_economy_mode(config[CONF_ECONOMY_MODE]))
+    if CONF_SUPPORTED_FEATURES in config:
+        features = set(config[CONF_SUPPORTED_FEATURES])
+        cg.add(var.set_supported_features(
+            "FILTER_TIMER" in features, "SENSOR_SWITCHING" in features,
+            "MAINTENANCE" in features, "ECONOMY" in features
+        ))
 
     # Always-present diagnostics, created in python and given to the hub via setters.
     s = await binary_sensor.new_binary_sensor(config[CONF_STANDBY_MODE])
@@ -411,7 +407,7 @@ async def to_code(config: ConfigType) -> None:
     s = await binary_sensor.new_binary_sensor(config[CONF_CONNECTED])
     cg.add(var.set_connected_sensor(s))
 
-    s = await text_sensor.new_text_sensor(config[CONF_SUPPORTED_FEATURES])
+    s = await text_sensor.new_text_sensor(config[CONF_REPORTED_FEATURES])
     cg.add(var.set_supported_features_sensor(s))
 
     n = await number.new_number(config[CONF_FUNCTION], min_value=0, max_value=255, step=1)
