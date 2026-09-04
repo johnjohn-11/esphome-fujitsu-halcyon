@@ -75,10 +75,13 @@ void FujitsuHalcyonController::check_init_timeout_() {
 
     const auto timeout_s = static_cast<unsigned>(this->init_timeout_ms_ / 1000);
     const auto attempt = static_cast<unsigned>(this->init_attempts_);
-    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS)
+    // Braces matter here: below the debug log level the macro expands to nothing,
+    // and a braceless body would leave an empty statement (-Wempty-body).
+    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS) {
         ESP_LOGW(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
-    else
+    } else {
         ESP_LOGD(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+    }
 
     this->controller->reinitialize();
 }
@@ -414,8 +417,9 @@ void FujitsuHalcyonController::dump_config() {
         this->ignore_lock_ ? "YES" : "NO",
         static_cast<unsigned>(this->init_timeout_ms_ / 1000), this->init_timeout_ms_ ? "" : " (disabled)",
         this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
-    if (this->temperature_sensor_ != nullptr)
+    if (this->temperature_sensor_ != nullptr) {
         ESP_LOGCONFIG(TAG, "  Sensor Timeout: %u s%s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000), this->sensor_timeout_ms_ ? "" : " (disabled)");
+    }
 
     if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
@@ -443,10 +447,12 @@ void FujitsuHalcyonController::dump_config() {
                 buf[0] ? buf : "NONE", zones.ZoneCommon ? "YES" : "NO");
         }
 
-        if (features.FilterTimer && this->filter_sensor_ != nullptr)
+        if (features.FilterTimer && this->filter_sensor_ != nullptr) {
             ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor_->state ? "EXPIRED" : "OK");
-        if (features.SensorSwitching && this->use_sensor_switch_ != nullptr)
+        }
+        if (features.SensorSwitching && this->use_sensor_switch_ != nullptr) {
             ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch_->state ? "YES" : "NO");
+        }
     }
 
 #if defined(USE_TZSP)
