@@ -92,7 +92,9 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
                 this->controller->set_function(this->function_number_->state, this->function_value_number_->state, this->function_unit_number_->state);
         }
 
-        FujitsuHalcyonController(uart::IDFUARTComponent *parent, uint8_t controller_address) : uart::UARTDevice(parent), controller_address_(controller_address) {}
+        // The UART parent is set by register_uart_device() in climate.py, like
+        // every other UARTDevice, so it is not a constructor argument.
+        explicit FujitsuHalcyonController(uint8_t controller_address) : controller_address_(controller_address) {}
 
         void loop() override;
         void setup() override;

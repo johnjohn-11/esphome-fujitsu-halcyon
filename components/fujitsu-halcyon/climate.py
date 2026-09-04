@@ -339,7 +339,7 @@ FINAL_VALIDATE_SCHEMA = cv.All(
 )
 
 async def to_code(config: ConfigType) -> None:
-    var = await climate.new_climate(config, await cg.get_variable(config[uart.CONF_UART_ID]), config[CONF_CONTROLLER_ADDRESS])
+    var = await climate.new_climate(config, config[CONF_CONTROLLER_ADDRESS])
     await cg.register_component(var, config)
     await uart.register_uart_device(var, config)
 
