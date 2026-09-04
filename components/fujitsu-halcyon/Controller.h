@@ -183,6 +183,7 @@ class Controller {
         Callbacks callbacks;
 
         bool autoconf = true;
+        bool unknown_flags_warned = false;
         struct Features features = DefaultFeatures;
         struct Config current_configuration = {};
         struct Config changed_configuration = {};

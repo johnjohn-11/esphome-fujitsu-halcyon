@@ -139,7 +139,7 @@ climate:
 
 The component needs to know what your indoor unit supports (which modes, fan speeds, swing directions, and options such as economy, filter timer, sensor switching, and zones) so it can show the right climate controls and validate the entities you declare. By default it asks the unit directly and uses the answer, so **most users need nothing here**.
 
-That probe is `autoconf: true`, the default. A few units enter a non-recoverable error state when probed, so for those set `autoconf: false` to skip it. Units that simply do not answer are handled automatically, the component falls back to its in-code defaults.
+That probe is `autoconf: true`, the default. One unit is known to enter a non-recoverable error state when probed, so for such a unit set `autoconf: false` to skip it. That unit reported a particular flag value in its packets. If yours reports the same value, the component logs a warning at startup pointing to this option, but you only need `autoconf: false` if the unit actually shows an error after startup. Units that simply do not answer are handled automatically, the component falls back to its in-code defaults.
 
 If your unit does not answer and the defaults are wrong for it, state its capabilities in YAML so the controls and the declared entities behave correctly. Anything not specified keeps its default value.
 

@@ -76,18 +76,27 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
         switch (packet.Type) {
             [[likely]] case PacketTypeEnum::Config:
                 if (this->initialization_stage == InitializationStageEnum::DetectFeatureSupport) {
-                    // Advance to FindNextControllerTx (skip feature negotiation entirely) if:
-                    //  - autoconf is disabled (use the configured features directly), or
-                    //  - the IU's UnknownFlags == 2 (no feature negotiation support).
-                    // Otherwise, transition to FeatureRequestTx to send a FeatureRequest packet
-                    // when our turn with the token comes around. The actual transmission and
-                    // the subsequent transition to FeatureRequestRx happen later in this function.
-                    // Note: this->features is already initialized to DefaultFeatures (or to a
-                    // user-supplied override via set_features()), so no assignment is needed here.
-                    if (!this->autoconf ||
-                        packet.Config.IndoorUnit.UnknownFlags == 2) {
+                    // Whether to probe the IU is decided by autoconf alone. An earlier
+                    // shortcut skipped the probe when UnknownFlags == 2, because one unit
+                    // with that value entered a non-recoverable error state when probed.
+                    // Units with the same value that negotiate fine were then silently
+                    // left on the default feature set (issue #44). Keep the observation
+                    // as a one-time warning instead, so the owner of an affected unit
+                    // knows to set autoconf: false.
+                    if (this->autoconf && packet.Config.IndoorUnit.UnknownFlags == 2 && !this->unknown_flags_warned) {
+                        this->unknown_flags_warned = true;
+                        ESP_LOGW(TAG, "Indoor unit reports UnknownFlags = 2. One unit with this value entered an error state when probed for features. If yours shows an error after startup, set autoconf: false");
+                    }
+
+                    // Advance to FindNextControllerTx (skip feature negotiation entirely) if
+                    // autoconf is disabled, otherwise transition to FeatureRequestTx to send a
+                    // FeatureRequest packet when our turn with the token comes around. The
+                    // actual transmission and the subsequent transition to FeatureRequestRx
+                    // happen later in this function. this->features is already initialized to
+                    // DefaultFeatures (or to a user-supplied override via set_features()).
+                    if (!this->autoconf)
                         this->set_initialization_stage(InitializationStageEnum::FindNextControllerTx);
-                    } else
+                    else
                         this->set_initialization_stage(InitializationStageEnum::FeatureRequestTx);
                 }
                 else if (this->initialization_stage == InitializationStageEnum::FeatureRequestRx) {
