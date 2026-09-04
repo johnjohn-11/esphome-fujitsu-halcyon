@@ -64,7 +64,9 @@ climate:
 - platform: fujitsu-halcyon
   name: None  # Use device friendly_name
 
-  # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses
+  # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses.
+  # Use 0 if this ESP is the only controller on the bus. Use 1 (or the next free
+  # address) if a wired wall controller is installed, since it takes 0.
   controller_address: 1  # 0=Primary, 1=Secondary
   #temperature_controller_address: 0  # Fujitsu controller address to read temperature from
 
@@ -76,7 +78,7 @@ climate:
   # Optional feature entities. Uncomment the ones your unit reports (check the
   # Supported Features sensor). Each key uses a default name. Add `name: "..."`
   # under a key to customize it. A feature the unit does not have logs a warning
-  # at startup and the entity stays unavailable. Zones have their own section below.
+  # at startup and the entity is created but has no effect. Zones have their own section below.
   #filter_timer_expired:
   #reset_filter_timer:
   #advance_vertical_louver:
@@ -102,8 +104,9 @@ sensor:
   - platform: homeassistant # https://esphome.io/components/sensor/homeassistant.html
     id: my_temperature_sensor
     entity_id: sensor.my_temperature_sensor  # Home Assistant entity_id
-    filters: # Sensor value must be °C. Convert from °F if your source is Fahrenheit.
-      - lambda: return fahrenheit_to_celsius(x);
+    # Sensor value must be °C. Uncomment the filter below if your source is Fahrenheit.
+    #filters:
+    #  - lambda: return fahrenheit_to_celsius(x);
 
   - platform: homeassistant
     id: my_humidity_sensor
@@ -129,6 +132,7 @@ climate:
     temperature_sensor_id: my_temperature_sensor
     sensor_timeout: 5min  # Optional, default 5min. 0s disables.
     use_sensor:
+      # restore_mode: RESTORE_DEFAULT_ON  # start ON at first boot, default RESTORE_DEFAULT_OFF
 ```
 
 ## Unit capabilities
@@ -168,8 +172,10 @@ Behavior matrix:
 | `true` | no | YAML overrides applied on top of `DefaultFeatures` |
 | `false` | (not probed) | YAML overrides applied on top of `DefaultFeatures` |
 
+`IU` is the indoor unit. `DefaultFeatures` is the component's built-in fallback capability set, used when the unit does not report its own.
+
 > [!NOTE]
-> Capability keys are not entity keys. `filter_timer` and `sensor_switching` state what the unit supports, while `filter_timer_expired` and `use_sensor` create the entities. Zones are the exception, there is no capability key for them, so zone support has to come from the unit itself. Keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity stays unavailable.
+> Capability keys are not entity keys. `filter_timer` and `sensor_switching` state what the unit supports, while `filter_timer_expired` and `use_sensor` create the entities. Zones are the exception, there is no capability key for them, so zone support has to come from the unit itself. Keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity is created but has no effect.
 
 ## Home Assistant entities
 
@@ -204,8 +210,8 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Standby Mode | Binary sensor | Enabled | Active during defrost, oil recovery, or multi-unit synchronization |
 | Error | Binary sensor | Enabled | Indicates an active fault on the indoor unit |
 | Error Code | Text sensor | Enabled | Fault code in `AA BB.CCC` (unit address + error code + extended error code) |
-| Initialization Stage | Text sensor | Enabled | Current initialization progress, (7/7) indicates complete |
-| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones \|` |
+| Initialization Stage | Text sensor | Enabled | Current initialization progress with a label, for example `Complete (7/7)` |
+| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones` |
 | Remote Temperature Sensor | Sensor | If declared | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
 | Filter Timer Expired | Binary sensor | If declared | Set when the filter maintenance timer has elapsed |
 
@@ -246,7 +252,7 @@ View the ESPHome log for the device.
 
 ### Verify receiving data
 
-```yaml
+```text
 RX: 00 A0 XX XX XX XX XX XX
 ```
 
@@ -260,11 +266,11 @@ uart:
 
 ### Verify transmitting data
 
-```yaml
+```text
 TX: XX XX XX XX XX XX XX XX
 ```
 
-If there are no transmit lines in the log, this component is not receiving the token allowing it to transmit.
+If there are no transmit lines in the log, this component is not receiving the token allowing it to transmit. The component logs a warning to this effect after about 15 seconds without a token: `Receiving data but no transmit token after 15 s`.
 
 Ensure `controller_address` is configured correctly and, if `controller_address` > `0`, this component is powered on before (or at least simultaneously with) the preceding controllers. Secondary controllers only get one chance to register for the token when the primary (or preceding) controller powers on.
 
