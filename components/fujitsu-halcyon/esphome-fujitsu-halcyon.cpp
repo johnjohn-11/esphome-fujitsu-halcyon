@@ -343,6 +343,46 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             ESP_LOGW(TAG, "advance_horizontal_louver declared but this unit does not report horizontal louvers");
         if (this->zones_declared_ && !features.Zones)
             ESP_LOGW(TAG, "zone_* declared but this unit does not report zone support");
+
+        // The inverse of the warnings above: the unit reports a controllable
+        // feature the user did not declare an entity for. Info, not a warning,
+        // since not declaring it is a valid choice. Lists the exact YAML keys to
+        // add so the user does not have to map feature names to keys by hand.
+        {
+            char buf[320];
+            int offset = 0;
+            auto append = [&](const char* text) {
+                if (offset < 0 || static_cast<size_t>(offset) >= sizeof(buf) - 1)
+                    return;
+                offset += std::snprintf(buf + offset, sizeof(buf) - offset, "%s", text);
+                if (static_cast<size_t>(offset) >= sizeof(buf))
+                    offset = sizeof(buf) - 1;
+            };
+
+            if (features.SensorSwitching && !this->use_sensor_declared_)
+                append(" use_sensor (also needs temperature_sensor_id),");
+            if (features.FilterTimer && !this->filter_entity_declared_)
+                append(" filter_timer_expired, reset_filter_timer,");
+            if (features.VerticalLouvers && !this->louver_v_declared_)
+                append(" advance_vertical_louver,");
+            if (features.HorizontalLouvers && !this->louver_h_declared_)
+                append(" advance_horizontal_louver,");
+            if (features.Zones && !this->zones_declared_) {
+                auto& zones = this->controller->get_zones();
+                for (size_t i = 0; i < zones.EnabledZones.size(); i++)
+                    if (zones.EnabledZones[i]) {
+                        char key[16];
+                        std::snprintf(key, sizeof(key), " zone_%u,", static_cast<unsigned>(i + 1));
+                        append(key);
+                    }
+                append(" zone_group_day, zone_group_night,");
+            }
+
+            if (offset > 0) {
+                buf[offset - 1] = '\0'; // drop the trailing comma
+                ESP_LOGI(TAG, "Unit reports features with no declared entity. Add these keys under climate: to expose them:%s", buf);
+            }
+        }
     }
 }
 
