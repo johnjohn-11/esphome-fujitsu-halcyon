@@ -42,8 +42,13 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         // The use_sensor switch is created inline in python and parented to this
         // controller. It calls use_sensor() to write, and set_use_sensor_switch()
         // gives the controller a pointer so it can publish the unit state back.
-        bool use_sensor(bool state) { return this->controller->use_sensor(state, this->ignore_lock_); }
+        // The switch state is the user's intent. What the unit actually receives
+        // also depends on the external sensor being usable, see apply_use_sensor_().
+        bool use_sensor(bool state) { return this->controller->use_sensor(state && this->sensor_usable_(), this->ignore_lock_); }
         void set_use_sensor_switch(switch_::Switch* sw) { this->use_sensor_switch_ = sw; }
+        // How long the external sensor may go without a valid reading before the
+        // unit is switched back to its own sensor. 0 disables the check.
+        void set_sensor_timeout(uint32_t timeout_ms) { this->sensor_timeout_ms_ = timeout_ms; }
 
         // Called by / set on the zone switches and the filter binary sensor, which are
         // created inline in python (switches parented, the sensor set through a pointer).
@@ -180,6 +185,19 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         // rejected while the feature flag is still false.
         optional<bool> pending_use_sensor_{};
         bool use_sensor_applied_{false};
+
+        // External sensor freshness. The unit is only told to use the external
+        // sensor while a valid reading exists and is not older than
+        // sensor_timeout_ms_. An unavailable Home Assistant sensor reports NaN, and
+        // a lost API connection reports nothing at all, so the check is based on
+        // the age of the last valid reading rather than on receiving NaN.
+        uint32_t sensor_timeout_ms_{0};
+        uint32_t last_valid_temperature_ms_{0};
+        bool temperature_valid_{false};
+        bool temperature_stale_{false};
+        bool sensor_usable_() const { return this->temperature_valid_ && !this->temperature_stale_; }
+        bool apply_use_sensor_();
+        void check_sensor_timeout_();
 
     private:
         // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.

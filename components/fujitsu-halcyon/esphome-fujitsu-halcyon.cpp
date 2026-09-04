@@ -22,6 +22,37 @@ constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" }
 
 void FujitsuHalcyonController::loop() {
     this->controller->process_uart_data();
+    this->check_sensor_timeout_();
+}
+
+// Push the effective use-sensor state to the unit: the switch's intent, masked by
+// whether the external reading is usable. Returns false if the unit refused it
+// (feature not supported, or locked and ignore_lock is off).
+bool FujitsuHalcyonController::apply_use_sensor_() {
+    if (this->use_sensor_switch_ == nullptr || !this->use_sensor_applied_)
+        return false;
+
+    return this->controller->use_sensor(this->use_sensor_switch_->state && this->sensor_usable_(), this->ignore_lock_);
+}
+
+void FujitsuHalcyonController::check_sensor_timeout_() {
+    if (this->sensor_timeout_ms_ == 0 || this->temperature_sensor_ == nullptr || this->temperature_stale_)
+        return;
+
+    if (millis() - this->last_valid_temperature_ms_ < this->sensor_timeout_ms_)
+        return;
+
+    // Also reached when no reading has ever arrived since boot (the timer starts
+    // in setup), so a switch left on with a dead sensor is reported too.
+    this->temperature_stale_ = true;
+
+    if (this->use_sensor_switch_ != nullptr && this->use_sensor_switch_->state) {
+        ESP_LOGW(TAG, "No valid reading from the temperature sensor for %u s, the unit uses its own sensor until readings resume",
+            static_cast<unsigned>(this->sensor_timeout_ms_ / 1000));
+        this->apply_use_sensor_();
+    } else {
+        ESP_LOGD(TAG, "No valid reading from the temperature sensor for %u s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000));
+    }
 }
 
 void FujitsuHalcyonController::setup() {
@@ -103,11 +134,33 @@ void FujitsuHalcyonController::setup() {
             this->current_temperature = state;
             this->publish_state();
 
-            // Send this temperature to the Fujitsu IU
-            this->controller->set_current_temperature(state);
+            if (std::isfinite(state)) {
+                this->last_valid_temperature_ms_ = millis();
+
+                // First valid reading, or readings resuming after a timeout: the
+                // external sensor is usable again, so hand it back to the unit if
+                // the switch is on.
+                if (!this->sensor_usable_()) {
+                    if (this->temperature_stale_)
+                        ESP_LOGI(TAG, "Temperature sensor readings resumed");
+                    this->temperature_valid_ = true;
+                    this->temperature_stale_ = false;
+                    this->apply_use_sensor_();
+                }
+
+                // Send this temperature to the Fujitsu IU
+                this->controller->set_current_temperature(state);
+            }
         });
 
+        // Start the freshness timer now so a sensor that never delivers is
+        // detected too, not only one that stops after a first reading.
+        this->last_valid_temperature_ms_ = millis();
         this->current_temperature = this->temperature_sensor_->state;
+        if (std::isfinite(this->current_temperature)) {
+            this->temperature_valid_ = true;
+            this->controller->set_current_temperature(this->current_temperature);
+        }
     }
 
     if (this->humidity_sensor_ != nullptr) {
@@ -178,11 +231,16 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     if (features.SensorSwitching && this->temperature_sensor_ != nullptr && this->use_sensor_switch_ != nullptr) {
         if (!this->use_sensor_applied_) {
             // Sensor switching is confirmed, so a write is no longer rejected.
-            // Apply the state restored in setup() once, then reflect it in HA.
+            // Apply the state restored in setup() once, then reflect it in HA. If
+            // the unit refuses (locked), show the switch off so HA matches reality.
             bool state = this->pending_use_sensor_.value_or(false);
-            this->controller->use_sensor(state, this->ignore_lock_);
-            this->use_sensor_switch_->publish_state(state);
+            this->use_sensor_switch_->state = state;
             this->use_sensor_applied_ = true;
+            if (!this->apply_use_sensor_() && state) {
+                ESP_LOGW(TAG, "Unit refused the restored use_sensor state (locked?), leaving the switch off");
+                state = false;
+            }
+            this->use_sensor_switch_->publish_state(state);
         } else {
             this->use_sensor_switch_->publish_state(this->use_sensor_switch_->state);
         }
@@ -252,6 +310,8 @@ void FujitsuHalcyonController::dump_config() {
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
+    if (this->temperature_sensor_ != nullptr)
+        ESP_LOGCONFIG(TAG, "  Sensor Timeout: %u s%s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000), this->sensor_timeout_ms_ ? "" : " (disabled)");
     ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
 
     if (this->controller != nullptr && this->controller->is_initialized()) {

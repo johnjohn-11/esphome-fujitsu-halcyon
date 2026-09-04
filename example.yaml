@@ -61,6 +61,7 @@ climate:
   #temperature_controller_address: 0  # Fujitsu controller address to read temperature from
 
   #temperature_sensor_id: my_temperature_sensor  # ESPHome sensor to read temperature from
+  #sensor_timeout: 5min  # Fall back to the unit's own sensor after this long without a valid reading (0s disables)
   #humidity_sensor: my_humidity_sensor  # ESPHome sensor to read humidity from
 
   #ignore_lock: true  # Ignore feature lock

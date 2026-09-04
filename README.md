@@ -117,7 +117,19 @@ climate:
     humidity_sensor: my_humidity_sensor
 ```
 
-If your unit supports sensor switching and has the function settings configured appropriately (see your installation manual, usually settings `42` and `48`), it can also be set to use this sensor instead of the sensor in its air intake. Declare the `use_sensor` entity (see below) to expose that switch.
+If your unit supports sensor switching and has the function settings configured appropriately (see your installation manual, usually settings `42` and `48`), it can also be set to use this sensor instead of the sensor in its air intake. Declare the `use_sensor` entity (see below) to expose that switch. The switch remembers its state across reboots.
+
+The unit is only told to use the external sensor while a valid reading is available. If the sensor becomes unavailable, or no reading arrives for `sensor_timeout` (default `5min`), the unit is switched back to its own sensor and a warning is logged. As soon as readings resume, the external sensor is handed back automatically. The Use Sensor switch keeps its state in Home Assistant during this time, it reflects your intent. Set `sensor_timeout: 0s` to disable the check and keep sending the last reading.
+
+```yaml
+climate:
+  - platform: fujitsu-halcyon
+    name: None
+    controller_address: 1
+    temperature_sensor_id: my_temperature_sensor
+    sensor_timeout: 5min  # Optional, default 5min. 0s disables.
+    use_sensor:
+```
 
 ## Unit capabilities
 
@@ -200,7 +212,7 @@ If you declare a feature entity that the indoor unit does not actually report, t
 ### Configuration
 | Entity | Type | Default | Description |
 |--------|------|---------|-------------|
-| Use Sensor | Switch | If declared | Route the external temperature sensor reading to the indoor unit (requires unit support and `temperature_sensor_id` configured, see settings `42` and `48`) |
+| Use Sensor | Switch | If declared | Route the external temperature sensor reading to the indoor unit (requires unit support and `temperature_sensor_id` configured, see settings `42` and `48`). Restored across reboots. Falls back to the unit's own sensor while no valid reading is available, see `sensor_timeout` |
 | Reset Filter Timer | Button | If declared | Reset the filter maintenance timer |
 | Advance Vertical Louver | Button | If declared | Step the vertical louver to the next position |
 | Advance Horizontal Louver | Button | If declared | Step the horizontal louver to the next position |
