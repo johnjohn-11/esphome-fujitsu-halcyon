@@ -183,9 +183,21 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     using fujitsu_general::airstage::h::InitializationStageEnum;
     using stage_t = std::underlying_type_t<InitializationStageEnum>;
 
-    // Update initialization stage sensor
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "(%u/%u)", static_cast<stage_t>(stage), static_cast<stage_t>(InitializationStageEnum::Complete));
+    // Update initialization stage sensor with a readable label plus progress.
+    static constexpr std::array<const char*, 8> STAGE_LABELS = {
+        "Detecting features",   // DetectFeatureSupport
+        "Requesting features",  // FeatureRequestTx
+        "Waiting for features",  // FeatureRequestRx
+        "Requesting zones",     // ZoneRequestEnabled
+        "Finding controllers",  // FindNextControllerTx
+        "Finding controllers",  // FindNextControllerRx
+        "Reading zones",        // ZoneRequestActive
+        "Complete",             // Complete
+    };
+    auto index = static_cast<stage_t>(stage);
+    const char* label = index < STAGE_LABELS.size() ? STAGE_LABELS[index] : "Unknown";
+    char buf[40];
+    std::snprintf(buf, sizeof(buf), "%s (%u/%u)", label, index, static_cast<stage_t>(InitializationStageEnum::Complete));
     this->initialization_sensor_->publish_state(buf);
     ESP_LOGD(TAG, "Initialization stage: %s", buf);
 
