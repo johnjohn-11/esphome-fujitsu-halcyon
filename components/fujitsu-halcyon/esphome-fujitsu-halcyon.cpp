@@ -20,9 +20,67 @@ static constexpr uint32_t TX_TOKEN_TIMEOUT_MS = 15000;
 
 constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" };
 
+// Automatic initialization restarts are logged as warnings up to this many
+// attempts, then at debug level so a permanently read-only controller (see the
+// transmit-token warning) does not flood the log.
+static constexpr uint8_t INIT_WATCHDOG_WARN_ATTEMPTS = 3;
+
+// Readable label for each initialization stage, indexed by the enum value.
+static constexpr std::array<const char*, 8> STAGE_LABELS = {
+    "Detecting features",   // DetectFeatureSupport
+    "Requesting features",  // FeatureRequestTx
+    "Waiting for features", // FeatureRequestRx
+    "Requesting zones",     // ZoneRequestEnabled
+    "Finding controllers",  // FindNextControllerTx
+    "Finding controllers",  // FindNextControllerRx
+    "Reading zones",        // ZoneRequestActive
+    "Complete",             // Complete
+};
+
+// Formats "<label> (<stage>/<last>)" into buf.
+static void format_stage(char* buf, size_t size, fujitsu_general::airstage::h::InitializationStageEnum stage) {
+    using fujitsu_general::airstage::h::InitializationStageEnum;
+    using stage_t = std::underlying_type_t<InitializationStageEnum>;
+
+    const auto index = static_cast<stage_t>(stage);
+    const char* label = index < STAGE_LABELS.size() ? STAGE_LABELS[index] : "Unknown";
+    std::snprintf(buf, size, "%s (%u/%u)", label, index, static_cast<stage_t>(InitializationStageEnum::Complete));
+}
+
 void FujitsuHalcyonController::loop() {
     this->controller->process_uart_data();
     this->check_sensor_timeout_();
+    this->check_init_timeout_();
+}
+
+void FujitsuHalcyonController::check_init_timeout_() {
+    if (this->init_timeout_ms_ == 0 || this->controller->is_initialized())
+        return;
+
+    if (millis() - this->init_started_ms_ < this->init_timeout_ms_)
+        return;
+
+    this->init_started_ms_ = millis();
+
+    // A silent bus is a wiring or pin problem, restarting the sequence would not
+    // help. The RX troubleshooting section of the README covers that case.
+    if (!this->received_bytes_)
+        return;
+
+    if (this->init_attempts_ < UINT8_MAX)
+        this->init_attempts_++;
+
+    char stage[40];
+    format_stage(stage, sizeof(stage), this->controller->get_initialization_stage());
+
+    const auto timeout_s = static_cast<unsigned>(this->init_timeout_ms_ / 1000);
+    const auto attempt = static_cast<unsigned>(this->init_attempts_);
+    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS)
+        ESP_LOGW(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+    else
+        ESP_LOGD(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+
+    this->controller->reinitialize();
 }
 
 // Push the effective use-sensor state to the unit: the switch's intent, masked by
@@ -110,6 +168,7 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_autoconf(this->autoconf_);
 
     this->connected_sensor_->publish_initial_state(false);
+    this->init_started_ms_ = millis();
 
     // Diagnostic for the common "reads state but cannot control" failure mode:
     // if the bus is delivering packets but this controller is never granted a
@@ -181,28 +240,20 @@ void FujitsuHalcyonController::setup() {
 
 void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage) {
     using fujitsu_general::airstage::h::InitializationStageEnum;
-    using stage_t = std::underlying_type_t<InitializationStageEnum>;
 
     // Update initialization stage sensor with a readable label plus progress.
-    static constexpr std::array<const char*, 8> STAGE_LABELS = {
-        "Detecting features",   // DetectFeatureSupport
-        "Requesting features",  // FeatureRequestTx
-        "Waiting for features",  // FeatureRequestRx
-        "Requesting zones",     // ZoneRequestEnabled
-        "Finding controllers",  // FindNextControllerTx
-        "Finding controllers",  // FindNextControllerRx
-        "Reading zones",        // ZoneRequestActive
-        "Complete",             // Complete
-    };
-    auto index = static_cast<stage_t>(stage);
-    const char* label = index < STAGE_LABELS.size() ? STAGE_LABELS[index] : "Unknown";
     char buf[40];
-    std::snprintf(buf, sizeof(buf), "%s (%u/%u)", label, index, static_cast<stage_t>(InitializationStageEnum::Complete));
+    format_stage(buf, sizeof(buf), stage);
     this->initialization_sensor_->publish_state(buf);
     ESP_LOGD(TAG, "Initialization stage: %s", buf);
 
     // Update connected sensor
     this->connected_sensor_->publish_state(stage == InitializationStageEnum::Complete);
+
+    if (stage == InitializationStageEnum::Complete && this->init_attempts_ > 0) {
+        ESP_LOGI(TAG, "Initialization completed after %u automatic restart(s)", this->init_attempts_);
+        this->init_attempts_ = 0;
+    }
 
     // Everything below depends on features being known
     if (stage <= InitializationStageEnum::FeatureRequestRx)
@@ -322,6 +373,7 @@ void FujitsuHalcyonController::dump_config() {
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
+    ESP_LOGCONFIG(TAG, "  Init Timeout: %u s%s", static_cast<unsigned>(this->init_timeout_ms_ / 1000), this->init_timeout_ms_ ? "" : " (disabled)");
     if (this->temperature_sensor_ != nullptr)
         ESP_LOGCONFIG(TAG, "  Sensor Timeout: %u s%s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000), this->sensor_timeout_ms_ ? "" : " (disabled)");
     ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");

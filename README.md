@@ -222,7 +222,7 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Reset Filter Timer | Button | If declared | Reset the filter maintenance timer |
 | Advance Vertical Louver | Button | If declared | Step the vertical louver to the next position |
 | Advance Horizontal Louver | Button | If declared | Step the horizontal louver to the next position |
-| Reinitialize | Button | Enabled | Re-run the initialization sequence without rebooting |
+| Reinitialize | Button | Enabled | Re-run the initialization sequence without rebooting. This also happens automatically, see `init_timeout` under [Troubleshooting](#initialization-does-not-complete) |
 | Function / Function Value / Function Unit | Number | Enabled | Raw function register access |
 | Function_Read / Function_Write | Button | Enabled / Disabled | Trigger a function register read or write |
 | Zone `#` | Switch | If declared | Enable/Disable zone `#` |
@@ -275,6 +275,26 @@ If there are no transmit lines in the log, this component is not receiving the t
 Ensure `controller_address` is configured correctly and, if `controller_address` > `0`, this component is powered on before (or at least simultaneously with) the preceding controllers. Secondary controllers only get one chance to register for the token when the primary (or preceding) controller powers on.
 
 You may want to temporarily disconnect the OEM remote controls and connect only this component with `controller_address: 0` to test without the registration window restriction.
+
+### Initialization does not complete
+
+The **Initialization Stage** sensor shows where the sequence is. It normally reaches `Complete (7/7)` within a few seconds of the first received packet. A missed packet during startup, or a power glitch that reboots the ESP in the middle of the sequence, can leave it stuck at an earlier stage, with **Supported Features** empty and no control from Home Assistant.
+
+The component watches for this. If initialization has not completed after `init_timeout` (default `30s`) while packets are being received, it restarts the sequence on its own, exactly as the **Reinitialize** button does, and logs a warning:
+
+```text
+Initialization stuck at 'Waiting for features (2/7)' for 30 s, restarting the sequence (attempt 1)
+```
+
+After three attempts the message drops to debug level so it does not flood the log. If the restarts never succeed, the cause is usually the missing transmit token described above, not the initialization itself. Set `init_timeout: 0s` to disable the watchdog.
+
+```yaml
+climate:
+  - platform: fujitsu-halcyon
+    name: None
+    controller_address: 0
+    init_timeout: 30s  # Optional, default 30s. 0s disables.
+```
 
 ### OEM controller displays an error
 

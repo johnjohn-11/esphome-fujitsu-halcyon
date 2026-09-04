@@ -65,6 +65,7 @@ climate:
   #humidity_sensor: my_humidity_sensor  # ESPHome sensor to read humidity from
 
   #ignore_lock: true  # Ignore feature lock
+  #init_timeout: 30s  # Restart initialization if it has not completed after this long (0s disables)
 
   # Optional feature entities. Uncomment the ones your unit reports (check the
   # Supported Features sensor). Each uses a default name, add `name:` to customize.

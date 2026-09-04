@@ -56,6 +56,7 @@ CONF_TEMPERATURE_SENSOR = "temperature_sensor_id"
 CONF_USE_SENSOR = "use_sensor"
 CONF_IGNORE_LOCK = "ignore_lock"
 CONF_SENSOR_TIMEOUT = "sensor_timeout"
+CONF_INIT_TIMEOUT = "init_timeout"
 
 # Feature negotiation override options.
 # When the indoor unit responds to a FeatureRequest with a Features packet, the
@@ -160,6 +161,10 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
         cv.Optional(CONF_TEMPERATURE_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
         cv.Optional(CONF_IGNORE_LOCK, default=False): cv.boolean,
+        # If initialization has not completed after this long while packets are
+        # being received, restart it automatically (same as the Reinitialize
+        # button). 0 disables.
+        cv.Optional(CONF_INIT_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
         cv.Optional(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
         # After this long without a valid temperature_sensor_id reading, the unit is
         # switched back to its own sensor until readings resume. 0 disables.
@@ -345,6 +350,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_temperature_controller_address(config[CONF_TEMPERATURE_CONTROLLER_ADDRESS]))
     cg.add(var.set_ignore_lock(config[CONF_IGNORE_LOCK]))
     cg.add(var.set_sensor_timeout(config[CONF_SENSOR_TIMEOUT]))
+    cg.add(var.set_init_timeout(config[CONF_INIT_TIMEOUT]))
 
     # Apply feature negotiation overrides. Anything omitted from YAML keeps the
     # in-code DefaultFeatures value.
