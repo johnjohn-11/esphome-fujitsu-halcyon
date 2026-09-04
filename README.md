@@ -231,7 +231,7 @@ If you declare a feature entity that the indoor unit does not actually report, t
 
 ## Zones
 
-For ducted or zoned units, declare the zones you have and, optionally, the day and night groups. Zone support and the set of enabled zones are read from the indoor unit, so this requires `autoconf` to stay on. There is no capability key for zones, so do not set `autoconf: false` if you use zones.
+For ducted or zoned units, declare the zones you have and, optionally, the day and night groups. Zone support and the set of enabled zones are read from the indoor unit, so this requires `autoconf` to stay on. There is no capability key for zones, so do not set `autoconf: false` if you use zones. The zone switches always show the state reported by the unit, they are not restored from the ESP's memory after a reboot.
 
 ```yaml
 climate:

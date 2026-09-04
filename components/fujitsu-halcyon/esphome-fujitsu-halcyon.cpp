@@ -312,19 +312,9 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     if (features.FilterTimer && this->filter_sensor_ != nullptr && this->filter_sensor_->has_state())
         this->filter_sensor_->publish_state(this->filter_sensor_->state);
 
-    // Publish zone state now that zones are known.
-    if (features.Zones) {
-        auto& zones = this->controller->get_zones();
-
-        for (size_t i = 0; i < this->zone_switches_.size(); i++)
-            if (zones.EnabledZones[i] && this->zone_switches_[i] != nullptr)
-                this->zone_switches_[i]->publish_state(this->zone_switches_[i]->state);
-
-        if (this->zone_group_day_switch_ != nullptr)
-            this->zone_group_day_switch_->publish_state(this->zone_group_day_switch_->state);
-        if (this->zone_group_night_switch_ != nullptr)
-            this->zone_group_night_switch_->publish_state(this->zone_group_night_switch_->state);
-    }
+    // Zone switches are not published here. Their state comes from the unit's
+    // ZoneConfig packet, published in update_from_device(ZoneConfig) once the
+    // ZoneRequestActive stage has read it.
 
     // Warn once, at completion, if the user declared a feature entity that the
     // unit does not actually report. These entities were opted into from YAML.

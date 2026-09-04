@@ -200,6 +200,9 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         ),
         # Feature-dependent entities. Created only when declared. Declaring a key
         # (even empty) uses a default name, override with `key: {name: "..."}`.
+        # use_sensor is the one switch whose state is the user's choice rather than
+        # the unit's, so it is the only one with a real restore mode (applied by the
+        # component, see esphome-fujitsu-halcyon.cpp).
         cv.Optional(CONF_USE_SENSOR): _feature_entity(switch.switch_schema(
             UseSensorSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
@@ -253,19 +256,20 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             cv.Optional(key): _feature_entity(switch.switch_schema(
                 ZoneSwitch,
                 entity_category=ENTITY_CATEGORY_CONFIG,
-                default_restore_mode="RESTORE_DEFAULT_ON"
+                # Zone state comes from the indoor unit, nothing to restore.
+                default_restore_mode="DISABLED"
             ), f"Zone {i}")
             for i, key in enumerate(ZONE_KEYS, start=1)
         },
         cv.Optional(CONF_ZONE_GROUP_DAY): _feature_entity(switch.switch_schema(
             ZoneGroupDaySwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
+            default_restore_mode="DISABLED"
         ), "Zone Group Day"),
         cv.Optional(CONF_ZONE_GROUP_NIGHT): _feature_entity(switch.switch_schema(
             ZoneGroupNightSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,
-            default_restore_mode="RESTORE_DEFAULT_ON"
+            default_restore_mode="DISABLED"
         ), "Zone Group Night"),
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
