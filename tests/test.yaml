@@ -1,0 +1,40 @@
+# Minimal configuration used by CI to compile the component from this
+# repository. It is not meant to be flashed. See example.yaml for a real,
+# documented configuration.
+
+esphome:
+  name: fujitsu-halcyon-test
+  friendly_name: Fujitsu Halcyon Test
+
+esp32:
+  board: m5stack-atom
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+
+logger:
+
+# Dummy credentials so the build also covers the Wi-Fi and API path that real
+# installations use. Never flashed.
+wifi:
+  ssid: "ci-test-ssid"
+  password: "ci-test-password"
+
+api:
+
+uart:
+  tx_pin: GPIO22
+  rx_pin: GPIO19
+  baud_rate: 500
+  parity: EVEN
+  rx_timeout: 2
+  rx_full_threshold: 16
+
+climate:
+  - platform: fujitsu-halcyon
+    name: None
+    controller_address: 0
