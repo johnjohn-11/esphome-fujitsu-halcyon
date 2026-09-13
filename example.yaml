@@ -53,7 +53,7 @@ uart:
   rx_full_threshold: 16
 
 climate:
-- platform: fujitsu-halcyon
+- platform: fujitsu_halcyon
   name: None
 
   # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses

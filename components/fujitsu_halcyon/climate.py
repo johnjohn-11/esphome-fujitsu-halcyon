@@ -117,22 +117,22 @@ CONF_SET_FUNCTION = "set_function"
 # undeclared entity does not exist. Core diagnostics and the function controls
 # stay always present.
 
-fujitsu_general_airstage_h_controller_ns = cg.esphome_ns.namespace("fujitsu_general_airstage_h_controller")
-FujitsuHalcyonController = fujitsu_general_airstage_h_controller_ns.class_("FujitsuHalcyonController", cg.Component, climate.Climate, uart.UARTDevice)
+fujitsu_halcyon_ns = cg.esphome_ns.namespace("fujitsu_halcyon")
+FujitsuHalcyonController = fujitsu_halcyon_ns.class_("FujitsuHalcyonController", cg.Component, climate.Climate, uart.UARTDevice)
 
 # Concrete feature entities created in python only when declared. Each is Parented
 # to the controller and calls it to act or to publish unit state.
-AdvanceVerticalLouverButton = fujitsu_general_airstage_h_controller_ns.class_("AdvanceVerticalLouverButton", button.Button)
-AdvanceHorizontalLouverButton = fujitsu_general_airstage_h_controller_ns.class_("AdvanceHorizontalLouverButton", button.Button)
-UseSensorSwitch = fujitsu_general_airstage_h_controller_ns.class_("UseSensorSwitch", switch.Switch)
-ResetFilterButton = fujitsu_general_airstage_h_controller_ns.class_("ResetFilterButton", button.Button)
-ZoneSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneSwitch", switch.Switch)
-ZoneGroupDaySwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupDaySwitch", switch.Switch)
-ZoneGroupNightSwitch = fujitsu_general_airstage_h_controller_ns.class_("ZoneGroupNightSwitch", switch.Switch)
-ReinitializeButton = fujitsu_general_airstage_h_controller_ns.class_("ReinitializeButton", button.Button)
-GetFunctionButton = fujitsu_general_airstage_h_controller_ns.class_("GetFunctionButton", button.Button)
-SetFunctionButton = fujitsu_general_airstage_h_controller_ns.class_("SetFunctionButton", button.Button)
-FunctionNumber = fujitsu_general_airstage_h_controller_ns.class_("FunctionNumber", number.Number)
+AdvanceVerticalLouverButton = fujitsu_halcyon_ns.class_("AdvanceVerticalLouverButton", button.Button)
+AdvanceHorizontalLouverButton = fujitsu_halcyon_ns.class_("AdvanceHorizontalLouverButton", button.Button)
+UseSensorSwitch = fujitsu_halcyon_ns.class_("UseSensorSwitch", switch.Switch)
+ResetFilterButton = fujitsu_halcyon_ns.class_("ResetFilterButton", button.Button)
+ZoneSwitch = fujitsu_halcyon_ns.class_("ZoneSwitch", switch.Switch)
+ZoneGroupDaySwitch = fujitsu_halcyon_ns.class_("ZoneGroupDaySwitch", switch.Switch)
+ZoneGroupNightSwitch = fujitsu_halcyon_ns.class_("ZoneGroupNightSwitch", switch.Switch)
+ReinitializeButton = fujitsu_halcyon_ns.class_("ReinitializeButton", button.Button)
+GetFunctionButton = fujitsu_halcyon_ns.class_("GetFunctionButton", button.Button)
+SetFunctionButton = fujitsu_halcyon_ns.class_("SetFunctionButton", button.Button)
+FunctionNumber = fujitsu_halcyon_ns.class_("FunctionNumber", number.Number)
 
 PACKET_FRAME_SIZE = 8
 UART_INTER_PACKET_SYMBOL_SPACING = 2
@@ -200,7 +200,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         # (even empty) uses a default name, override with `key: {name: "..."}`.
         # use_sensor is the one switch whose state is the user's choice rather than
         # the unit's, so it is the only one with a real restore mode (applied by the
-        # component, see esphome-fujitsu-halcyon.cpp).
+        # component, see fujitsu_halcyon.cpp).
         cv.Optional(CONF_USE_SENSOR): _feature_entity(switch.switch_schema(
             UseSensorSwitch,
             entity_category=ENTITY_CATEGORY_CONFIG,

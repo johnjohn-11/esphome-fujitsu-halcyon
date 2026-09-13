@@ -1,4 +1,4 @@
-#include "esphome-fujitsu-halcyon.h"
+#include "fujitsu_halcyon.h"
 
 #include <algorithm>
 #include <array>
@@ -9,7 +9,7 @@
 #include <esphome/core/helpers.h>
 #include <soc/uart_reg.h>
 
-namespace esphome::fujitsu_general_airstage_h_controller {
+namespace esphome::fujitsu_halcyon {
 
 static const char* TAG = "fujitsu_halcyon";
 

@@ -22,7 +22,7 @@
 
 #include "Controller.h"
 
-namespace esphome::fujitsu_general_airstage_h_controller {
+namespace esphome::fujitsu_halcyon {
 
 #if defined(USE_TZSP)
 class FujitsuHalcyonController : public Component, public climate::Climate, public uart::UARTDevice, public tzsp::TZSPSender {

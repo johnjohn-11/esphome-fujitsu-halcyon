@@ -41,7 +41,7 @@ uart:
   rx_full_threshold: 16
 
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 0
     temperature_sensor_id: test_temperature

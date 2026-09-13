@@ -61,7 +61,7 @@ uart:
   parity: EVEN
 
 climate:
-- platform: fujitsu-halcyon
+- platform: fujitsu_halcyon
   name: None  # Use device friendly_name
 
   # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses.
@@ -113,7 +113,7 @@ sensor:
     entity_id: sensor.my_humidity_sensor
 
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 1
     temperature_sensor_id: my_temperature_sensor
@@ -126,7 +126,7 @@ The unit is only told to use the external sensor while a valid reading is availa
 
 ```yaml
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 1
     temperature_sensor_id: my_temperature_sensor
@@ -145,7 +145,7 @@ If your unit does not answer and the defaults are wrong for it, state its capabi
 
 ```yaml
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 0
 
@@ -232,7 +232,7 @@ For ducted or zoned units, declare the zones you have and, optionally, the day a
 
 ```yaml
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 0
 
@@ -287,7 +287,7 @@ After three attempts the message drops to debug level so it does not flood the l
 
 ```yaml
 climate:
-  - platform: fujitsu-halcyon
+  - platform: fujitsu_halcyon
     name: None
     controller_address: 0
     init_timeout: 30s  # Optional, default 30s. 0s disables.
