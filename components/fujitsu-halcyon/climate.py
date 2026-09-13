@@ -188,11 +188,11 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function_Read"}): button.button_schema(
+        cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function Read"}): button.button_schema(
             GetFunctionButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_SET_FUNCTION, default={CONF_NAME: "Function_Write", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
+        cv.Optional(CONF_SET_FUNCTION, default={CONF_NAME: "Function Write", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             SetFunctionButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),

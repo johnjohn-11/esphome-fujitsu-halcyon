@@ -221,7 +221,7 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Advance Horizontal Louver | Button | If declared | Step the horizontal louver to the next position |
 | Reinitialize | Button | Enabled | Re-run the initialization sequence without rebooting. This also happens automatically, see `init_timeout` under [Troubleshooting](#initialization-does-not-complete) |
 | Function / Function Value / Function Unit | Number | Enabled | Raw function register access |
-| Function_Read / Function_Write | Button | Enabled / Disabled | Trigger a function register read or write |
+| Function Read / Function Write | Button | Enabled / Disabled | Trigger a function register read or write |
 | Zone `#` | Switch | If declared | Enable/Disable zone `#` |
 | Zone Group Day | Switch | If declared | Enable/Disable zone group Day |
 | Zone Group Night | Switch | If declared | Enable/Disable zone group Night |
