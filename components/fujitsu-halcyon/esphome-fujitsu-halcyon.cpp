@@ -1,7 +1,9 @@
 #include "esphome-fujitsu-halcyon.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <string>
 #include <type_traits>
 
 #include <esphome/core/helpers.h>
@@ -205,7 +207,7 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     if (features.Zones) {
         auto& zones = this->controller->get_zones();
 
-        for (auto i = 0; i < this->zone_switches.size(); i++)
+        for (size_t i = 0; i < this->zone_switches.size(); i++)
             if (zones.EnabledZones[i]) {
                 this->zone_switches[i]->set_internal(false);
                 this->zone_switches[i]->publish_state(this->zone_switches[i]->state);
@@ -219,6 +221,11 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
 }
 
 void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, size_t length) {
+    // Frames are at most Packet::FrameSize bytes; clamp so the fixed-size pretty
+    // buffer below can never overflow. Sizing the buffer from this compile-time
+    // constant (rather than tbuf.size()) also avoids a non-standard VLA.
+    length = std::min(length, static_cast<size_t>(fujitsu_general::airstage::h::Packet::FrameSize));
+
     auto tbuf = std::vector<uint8_t>(buf, buf + length);
     for (auto &b : tbuf)
         b ^= 0xFF;
@@ -227,8 +234,8 @@ void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, s
     this->tzsp_send(tbuf);
 #endif
 
-    char pretty_buf[esphome::format_hex_pretty_size(tbuf.size())];
-    esphome::format_hex_pretty_to(pretty_buf, sizeof(pretty_buf), tbuf.data(), tbuf.size(), ' ');
+    char pretty_buf[esphome::format_hex_pretty_size(fujitsu_general::airstage::h::Packet::FrameSize)];
+    esphome::format_hex_pretty_to(pretty_buf, tbuf, ' ');
     ESP_LOGD(TAG, "%s: %s", dir, pretty_buf);
 }
 
@@ -242,7 +249,7 @@ void FujitsuHalcyonController::dump_config() {
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
     ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor->state ? "ACTIVE" : "NORMAL");
 
-    if (this->controller->is_initialized()) {
+    if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
 
         ESP_LOGCONFIG(TAG, "  Additional Features:%s", features.FilterTimer || features.Maintenance || features.SensorSwitching || features.Zones ? "" : " NONE");
@@ -258,7 +265,7 @@ void FujitsuHalcyonController::dump_config() {
             // Build a comma-separated list of enabled zones
             char buf[3 * zones.EnabledZones.size() + 1];
             int offset = 0;
-            for (auto i = 0; i < zones.EnabledZones.size() && offset < sizeof(buf); i++)
+            for (size_t i = 0; i < zones.EnabledZones.size() && offset < static_cast<int>(sizeof(buf)); i++)
                 if (zones.EnabledZones[i])
                     offset += std::snprintf(buf + offset, sizeof(buf) - offset, "%u, ", i + 1);
             buf[offset ? offset - 2 : 0] = '\0';
@@ -290,13 +297,19 @@ void FujitsuHalcyonController::dump_config() {
 climate::ClimateTraits FujitsuHalcyonController::traits() {
     using namespace climate;
 
-    auto& features = this->controller->get_features();
     auto traits = ClimateTraits();
 
     // Target temperature / Setpoint
     traits.set_visual_temperature_step(1);
     traits.set_visual_min_temperature(fujitsu_general::airstage::h::MinSetpoint);
     traits.set_visual_max_temperature(fujitsu_general::airstage::h::MaxSetpoint);
+
+    // controller is null if setup() failed early; return the basic temperature
+    // traits so the entity still registers rather than dereferencing a nullptr.
+    if (this->controller == nullptr)
+        return traits;
+
+    auto& features = this->controller->get_features();
 
     // Current temperature
     if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
@@ -451,7 +464,7 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data) {
-    for (auto i = 0; i < this->zone_switches.size(); i++)
+    for (size_t i = 0; i < this->zone_switches.size(); i++)
         this->zone_switches[i]->publish_state(data.ActiveZones[i]);
 
     this->zone_group_day_switch->publish_state(data.ActiveZoneGroups.Day);
@@ -464,34 +477,38 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
     // Error packet
     if (data.Type == PacketTypeEnum::Error)
     {
+        const bool has_error = data.Error.ErrorCode != 0;
+
         // Error sensor (boolean)
-        if (!data.Error.ErrorCode == this->error_sensor->state)
-            this->error_sensor->publish_state(data.Error.ErrorCode);
+        if (has_error != this->error_sensor->state)
+            this->error_sensor->publish_state(has_error);
 
-        // Error sensor (text)
-        if (!data.Error.ErrorCode != this->error_code_sensor->get_raw_state().empty())
+        // Error sensor (text): "AA BB[.CCC]" (source address + error code + extended).
+        // Build the desired string first, then publish only if it differs from the
+        // current value. Comparing the full string (rather than just error/no-error)
+        // means a fault changing from one non-zero code to another still refreshes.
+        std::string error_text;
+        if (has_error)
         {
-            if (!data.Error.ErrorCode)
-                this->error_code_sensor->publish_state("");
-            else
-            {
-                const auto error_bytes = std::to_array<uint8_t>({ data.SourceAddress, data.Error.ErrorCode });
-                const auto error_buf_len = esphome::format_hex_pretty_size(error_bytes.size());
-                constexpr auto extended_error_buf_len = 4;
+            const auto error_bytes = std::to_array<uint8_t>({ data.SourceAddress, data.Error.ErrorCode });
+            const auto error_buf_len = esphome::format_hex_pretty_size(error_bytes.size());
+            constexpr auto extended_error_buf_len = 4;
 
-                char error_buf[error_buf_len + extended_error_buf_len];
-                esphome::format_hex_pretty_to(error_buf, error_bytes, ' ');
+            char error_buf[error_buf_len + extended_error_buf_len];
+            esphome::format_hex_pretty_to(error_buf, error_bytes, ' ');
 
-                if (data.Error.ErrorCodeExtended)
-                    std::sprintf(error_buf + error_buf_len - 1, ".%u", data.Error.ErrorCodeExtended);
+            if (data.Error.ErrorCodeExtended)
+                std::snprintf(error_buf + error_buf_len - 1, extended_error_buf_len + 1, ".%u", data.Error.ErrorCodeExtended);
 
-                // NOTE: Error codes D? appear to be remapped to J?, but maybe not in all cases?
-                if ((data.Error.ErrorCode & 0xF0) == 0xD0)
-                    error_buf[3] = 'J';
+            // NOTE: Error codes D? appear to be remapped to J?, but maybe not in all cases?
+            if ((data.Error.ErrorCode & 0xF0) == 0xD0)
+                error_buf[3] = 'J';
 
-                this->error_code_sensor->publish_state(error_buf);
-            }
+            error_text = error_buf;
         }
+
+        if (error_text != this->error_code_sensor->get_raw_state())
+            this->error_code_sensor->publish_state(error_text);
     }
 }
 
