@@ -13,11 +13,77 @@ namespace esphome::fujitsu_general_airstage_h_controller {
 
 static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
 
+// If we are receiving from the bus but have not been handed a transmit token
+// within this window, control commands cannot be delivered (the unit is
+// effectively read-only). Warn the user once with guidance.
+static constexpr uint32_t TX_TOKEN_TIMEOUT_MS = 15000;
+
 constexpr std::array ControllerName = { "Primary", "Secondary", "Undocumented" };
+
+// Automatic initialization restarts are logged as warnings up to this many
+// attempts, then at debug level so a permanently read-only controller (see the
+// transmit-token warning) does not flood the log.
+static constexpr uint8_t INIT_WATCHDOG_WARN_ATTEMPTS = 3;
+
+// Readable label for each initialization stage, indexed by the enum value.
+static constexpr std::array<const char*, 8> STAGE_LABELS = {
+    "Detecting features",   // DetectFeatureSupport
+    "Requesting features",  // FeatureRequestTx
+    "Waiting for features", // FeatureRequestRx
+    "Requesting zones",     // ZoneRequestEnabled
+    "Finding controllers",  // FindNextControllerTx
+    "Finding controllers",  // FindNextControllerRx
+    "Reading zones",        // ZoneRequestActive
+    "Complete",             // Complete
+};
+
+// Formats "<label> (<stage>/<last>)" into buf.
+static void format_stage(char* buf, size_t size, fujitsu_general::airstage::h::InitializationStageEnum stage) {
+    using fujitsu_general::airstage::h::InitializationStageEnum;
+    using stage_t = std::underlying_type_t<InitializationStageEnum>;
+
+    const auto index = static_cast<stage_t>(stage);
+    const char* label = index < STAGE_LABELS.size() ? STAGE_LABELS[index] : "Unknown";
+    std::snprintf(buf, size, "%s (%u/%u)", label, index, static_cast<stage_t>(InitializationStageEnum::Complete));
+}
 
 void FujitsuHalcyonController::loop() {
     this->controller->process_uart_data();
     this->check_sensor_timeout_();
+    this->check_init_timeout_();
+}
+
+void FujitsuHalcyonController::check_init_timeout_() {
+    using fujitsu_general::airstage::h::InitializationStageEnum;
+
+    if (this->init_timeout_ms_ == 0 || this->controller->is_initialized())
+        return;
+
+    if (millis() - this->init_started_ms_ < this->init_timeout_ms_)
+        return;
+
+    this->init_started_ms_ = millis();
+
+    // Still at the first stage means the unit has never answered, so there is no
+    // partial sequence to restart. That is a wiring or pin problem, covered by the
+    // RX troubleshooting section of the README.
+    if (this->controller->get_initialization_stage() == InitializationStageEnum::DetectFeatureSupport)
+        return;
+
+    if (this->init_attempts_ < UINT8_MAX)
+        this->init_attempts_++;
+
+    char stage[40];
+    format_stage(stage, sizeof(stage), this->controller->get_initialization_stage());
+
+    const auto timeout_s = static_cast<unsigned>(this->init_timeout_ms_ / 1000);
+    const auto attempt = static_cast<unsigned>(this->init_attempts_);
+    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS)
+        ESP_LOGW(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+    else
+        ESP_LOGD(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+
+    this->controller->reinitialize();
 }
 
 // Push the effective use-sensor state to the unit: the switch's intent, masked by
@@ -85,9 +151,11 @@ void FujitsuHalcyonController::setup() {
             },
             .ReadBytes  = [this](uint8_t *buf, size_t length){
                 this->read_array(buf, length);
+                this->received_bytes_ = true;
                 this->log_buffer("RX", buf, length);
             },
             .WriteBytes = [this](const uint8_t *buf, size_t length){
+                this->transmitted_ = true;
                 this->write_array(buf, length);
                 this->log_buffer("TX", buf, length);
             }
@@ -103,6 +171,21 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_autoconf(this->autoconf_);
 
     this->connected_sensor_->publish_initial_state(false);
+    this->init_started_ms_ = millis();
+
+    // Diagnostic for the common "reads state but cannot control" failure mode:
+    // if the bus is delivering packets but this controller is never granted a
+    // transmit token, warn once with actionable guidance. Secondary controllers
+    // (controller_address > 0) only get to register during the preceding
+    // controller's power-on window.
+    this->set_timeout(TX_TOKEN_TIMEOUT_MS, [this]() {
+        if (this->received_bytes_ && !this->transmitted_)
+            ESP_LOGW(TAG,
+                "Receiving data but no transmit token after %u s - control commands will have no effect. "
+                "If controller_address > 0, power this device on before (or with) the preceding "
+                "controller(s) so it can register for the token. See the README Troubleshooting section.",
+                static_cast<unsigned>(TX_TOKEN_TIMEOUT_MS / 1000));
+    });
 
     // Use the specified sensor for this component's reported temperature. The
     // value must be in Celsius. Convert in YAML (see README) if your source is
@@ -158,18 +241,61 @@ void FujitsuHalcyonController::setup() {
         this->pending_use_sensor_ = this->use_sensor_switch_->get_initial_state_with_restore_mode();
 }
 
+// Lists the yaml keys of the features the unit reports but the user declared no
+// entity for, as " key, key". Writes an empty string when every reported feature
+// already has one. Only meaningful once the controller knows the features.
+void FujitsuHalcyonController::format_undeclared_features_(char* buf, size_t size) {
+    auto& features = this->controller->get_features();
+
+    buf[0] = '\0';
+    int offset = 0;
+    auto append = [&](const char* text) {
+        if (offset < 0 || static_cast<size_t>(offset) >= size - 1)
+            return;
+        offset += std::snprintf(buf + offset, size - offset, "%s", text);
+        if (static_cast<size_t>(offset) >= size)
+            offset = static_cast<int>(size) - 1;
+    };
+
+    if (features.SensorSwitching && !this->use_sensor_declared_)
+        append(" use_sensor (also needs temperature_sensor_id),");
+    if (features.FilterTimer && !this->filter_entity_declared_)
+        append(" filter_timer_expired, reset_filter_timer,");
+    if (features.VerticalLouvers && !this->louver_v_declared_)
+        append(" advance_vertical_louver,");
+    if (features.HorizontalLouvers && !this->louver_h_declared_)
+        append(" advance_horizontal_louver,");
+    if (features.Zones && !this->zones_declared_) {
+        auto& zones = this->controller->get_zones();
+        for (size_t i = 0; i < zones.EnabledZones.size(); i++)
+            if (zones.EnabledZones[i]) {
+                char key[16];
+                std::snprintf(key, sizeof(key), " zone_%u,", static_cast<unsigned>(i + 1));
+                append(key);
+            }
+        append(" zone_group_day, zone_group_night,");
+    }
+
+    if (offset > 0)
+        buf[offset - 1] = '\0'; // drop the trailing comma
+}
+
 void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage) {
     using fujitsu_general::airstage::h::InitializationStageEnum;
-    using stage_t = std::underlying_type_t<InitializationStageEnum>;
 
-    // Update initialization stage sensor
-    char buf[8];
-    std::snprintf(buf, sizeof(buf), "(%u/%u)", static_cast<stage_t>(stage), static_cast<stage_t>(InitializationStageEnum::Complete));
+    // Update initialization stage sensor with a readable label plus progress.
+    char buf[40];
+    format_stage(buf, sizeof(buf), stage);
     this->initialization_sensor_->publish_state(buf);
     ESP_LOGD(TAG, "Initialization stage: %s", buf);
 
     // Update connected sensor
     this->connected_sensor_->publish_state(stage == InitializationStageEnum::Complete);
+
+    if (stage == InitializationStageEnum::Complete && this->init_attempts_ > 0) {
+        ESP_LOGI(TAG, "Initialization completed after %u automatic restart(s)", this->init_attempts_);
+        this->init_attempts_ = 0;
+    }
 
     // Everything below depends on features being known
     if (stage <= InitializationStageEnum::FeatureRequestRx)
@@ -245,6 +371,16 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             ESP_LOGW(TAG, "advance_horizontal_louver declared but this unit does not report horizontal louvers");
         if (this->zones_declared_ && !features.Zones)
             ESP_LOGW(TAG, "zone_* declared but this unit does not report zone support");
+
+        // The inverse of the warnings above: the unit reports a controllable
+        // feature the user did not declare an entity for. Info, not a warning,
+        // since not declaring it is a valid choice. dump_config() repeats it for
+        // anyone who opens the log after initialization has already run.
+        char undeclared[320];
+        this->format_undeclared_features_(undeclared, sizeof(undeclared));
+        if (undeclared[0] != '\0') {
+            ESP_LOGI(TAG, "Unit reports features with no declared entity. Add these keys under climate: to expose them:%s", undeclared);
+        }
     }
 }
 
@@ -275,6 +411,7 @@ void FujitsuHalcyonController::dump_config() {
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
+    ESP_LOGCONFIG(TAG, "  Init Timeout: %u s%s", static_cast<unsigned>(this->init_timeout_ms_ / 1000), this->init_timeout_ms_ ? "" : " (disabled)");
     if (this->temperature_sensor_ != nullptr)
         ESP_LOGCONFIG(TAG, "  Sensor Timeout: %u s%s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000), this->sensor_timeout_ms_ ? "" : " (disabled)");
     ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
@@ -308,6 +445,14 @@ void FujitsuHalcyonController::dump_config() {
             ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor_->state ? "EXPIRED" : "OK");
         if (features.SensorSwitching && this->use_sensor_switch_ != nullptr)
             ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch_->state ? "YES" : "NO");
+
+        // Same list the INFO log prints when initialization completes, repeated
+        // here so it is still visible to someone opening the log later.
+        char undeclared[320];
+        this->format_undeclared_features_(undeclared, sizeof(undeclared));
+        if (undeclared[0] != '\0') {
+            ESP_LOGCONFIG(TAG, "  Features with no declared entity:%s", undeclared);
+        }
     }
 
 #if defined(USE_TZSP)

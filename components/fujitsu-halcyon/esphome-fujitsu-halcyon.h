@@ -31,7 +31,14 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
     public:
 
         // Called by the ReinitializeButton entity (created inline in python).
-        void reinitialize() { this->controller->reinitialize(); }
+        // Also resets the initialization watchdog, see check_init_timeout_().
+        void reinitialize() {
+            this->init_started_ms_ = millis();
+            this->init_attempts_ = 0;
+            this->controller->reinitialize();
+        }
+        // How long initialization may take before the watchdog restarts it. 0 disables.
+        void set_init_timeout(uint32_t timeout_ms) { this->init_timeout_ms_ = timeout_ms; }
         // Called by the ResetFilterButton entity (created inline in python, see climate.py).
         void reset_filter() { this->controller->reset_filter(this->ignore_lock_); }
         // Called by the AdvanceVerticalLouverButton / AdvanceHorizontalLouverButton
@@ -140,6 +147,23 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         uint8_t controller_address_{};
         uint8_t temperature_controller_address_{};
         bool ignore_lock_{};
+
+        // Set from the UART read/write callbacks; used by the transmit-token
+        // watchdog scheduled in setup() to detect a read-only (never granted the
+        // token) controller.
+        bool received_bytes_{false};
+        bool transmitted_{false};
+
+        // Initialization watchdog. If the sequence has not reached Complete within
+        // init_timeout_ms_ while packets are being received, it is restarted (same
+        // as the Reinitialize button). A missed packet during startup, or a glitch
+        // that reboots the ESP mid-sequence, otherwise leaves the component stuck
+        // with no features and no control until someone presses Reinitialize.
+        uint32_t init_timeout_ms_{0};
+        uint32_t init_started_ms_{0};
+        uint8_t init_attempts_{0};
+        void check_init_timeout_();
+
         sensor::Sensor* humidity_sensor_{};
         sensor::Sensor* temperature_sensor_{};
 
@@ -207,6 +231,8 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         void on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage);
 
         void log_buffer(const char* dir, const uint8_t* buf, size_t length);
+
+        void format_undeclared_features_(char* buf, size_t size);
 
         static constexpr climate::ClimateMode mode_to_climate_mode(fujitsu_general::airstage::h::ModeEnum mode) noexcept;
         static constexpr climate::ClimateFanMode fan_speed_to_climate_fan_mode(fujitsu_general::airstage::h::FanSpeedEnum fan_speed) noexcept;
