@@ -59,6 +59,16 @@ climate:
 
   #ignore_lock: true  # Ignore feature lock
 
+  # Optional feature entities. Uncomment the ones your unit reports (check the
+  # Supported Features sensor). Each uses a default name, add `name:` to customize.
+  # Zones have their own block, see the README.
+  #filter_timer_expired:
+  #reset_filter_timer:
+  #advance_vertical_louver:
+  #advance_horizontal_louver:
+  #use_sensor:      # also needs temperature_sensor_id and unit function settings 42 and 48
+  #remote_sensor:   # needs another controller on the bus, see temperature_controller_address
+
   # To capture communications for debugging / analysis
   # Use Wireshark with https://github.com/Omniflux/fujitsu-airstage-h-dissector
   #tzsp:

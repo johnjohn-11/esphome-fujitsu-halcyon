@@ -71,7 +71,7 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_features(this->features_override_);
     this->controller->set_autoconf(this->autoconf_);
 
-    this->connected_sensor->publish_initial_state(false);
+    this->connected_sensor_->publish_initial_state(false);
 
     // Use the specified sensor for this component's reported temperature. The
     // value must be in Celsius. Convert in YAML (see README) if your source is
@@ -97,26 +97,6 @@ void FujitsuHalcyonController::setup() {
 
         this->current_humidity = this->humidity_sensor_->state;
     }
-
-    // Use remote controllers sensor for this components reported temperature if other sensor is not configured
-    if (this->temperature_sensor_ == nullptr) {
-        this->remote_sensor->add_on_raw_state_callback([this](float temperature) {
-            this->current_temperature = temperature;
-            this->publish_state();
-        });
-    }
-
-/*
-    // Not sure if should timeout, or wait forever.
-    // Not sure if getting stuck at can_proceed() causes boot failure count to increment
-    // which can be problematic later
-    this->set_timeout(10000, [this](){
-        if (!this->can_proceed()) {
-            ESP_LOGE(TAG, "Failed to initialize");
-            this->mark_failed();
-        }
-    });
-*/
 }
 
 void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::airstage::h::InitializationStageEnum stage) {
@@ -126,18 +106,19 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     // Update initialization stage sensor
     char buf[8];
     std::snprintf(buf, sizeof(buf), "(%u/%u)", static_cast<stage_t>(stage), static_cast<stage_t>(InitializationStageEnum::Complete));
-    this->initialization_sensor->publish_state(buf);
+    this->initialization_sensor_->publish_state(buf);
     ESP_LOGD(TAG, "Initialization stage: %s", buf);
 
     // Update connected sensor
-    this->connected_sensor->publish_state(stage == InitializationStageEnum::Complete);
+    this->connected_sensor_->publish_state(stage == InitializationStageEnum::Complete);
 
     // Everything below depends on features being known
     if (stage <= InitializationStageEnum::FeatureRequestRx)
         return;
 
-    // Expose feature dependent entities now that features are known,
-    // and force a state publish so HA discovers them even if ListEntities already ran
+    // Publish feature-dependent entity state now that features are known. An
+    // entity only exists when it was declared in YAML, so each publish below is
+    // guarded by both the feature flag and a null check.
     auto& features = this->controller->get_features();
 
     // Publish supported features as a human-readable diagnostic string.
@@ -164,44 +145,32 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             features.HorizontalLouvers ? " | H.Louvers"        : "",
             features.Zones             ? " | Zones"            : ""
         );
-        this->supported_features_sensor->publish_state(buf);
+        this->supported_features_sensor_->publish_state(buf);
     }
 
-    if (features.SensorSwitching && this->temperature_sensor_ != nullptr) {
-        this->use_sensor_switch->set_internal(false);
-        this->use_sensor_switch->publish_state(this->use_sensor_switch->state);
-    }
+    if (features.SensorSwitching && this->temperature_sensor_ != nullptr && this->use_sensor_switch_ != nullptr)
+        this->use_sensor_switch_->publish_state(this->use_sensor_switch_->state);
 
-    if (features.VerticalLouvers) {
-        this->advance_vertical_louver_button->set_internal(false);
-    }
+    if (features.FilterTimer && this->filter_sensor_ != nullptr && this->filter_sensor_->has_state())
+        this->filter_sensor_->publish_state(this->filter_sensor_->state);
 
-    if (features.HorizontalLouvers) {
-        this->advance_horizontal_louver_button->set_internal(false);
-    }
+    // Zone switches are not published here. Their state comes from the unit's
+    // ZoneConfig packet, published in update_from_device(ZoneConfig) once the
+    // ZoneRequestActive stage has read it.
 
-    if (features.FilterTimer) {
-        this->filter_sensor->set_internal(false);
-        if (this->filter_sensor->has_state())
-            this->filter_sensor->publish_state(this->filter_sensor->state);
-        this->reset_filter_button->set_internal(false);
-    }
-
-    // Expose zone dependent entities now that zones are known,
-    // and force a state publish so HA discovers them even if ListEntities already ran
-    if (features.Zones) {
-        auto& zones = this->controller->get_zones();
-
-        for (size_t i = 0; i < this->zone_switches.size(); i++)
-            if (zones.EnabledZones[i]) {
-                this->zone_switches[i]->set_internal(false);
-                this->zone_switches[i]->publish_state(this->zone_switches[i]->state);
-            }
-
-        this->zone_group_day_switch->set_internal(false);
-        this->zone_group_day_switch->publish_state(this->zone_group_day_switch->state);
-        this->zone_group_night_switch->set_internal(false);
-        this->zone_group_night_switch->publish_state(this->zone_group_night_switch->state);
+    // Warn once, at completion, if the user declared a feature entity that the
+    // unit does not actually report. These entities were opted into from YAML.
+    if (stage == InitializationStageEnum::Complete) {
+        if (this->use_sensor_declared_ && !features.SensorSwitching)
+            ESP_LOGW(TAG, "use_sensor declared but this unit does not report sensor switching support, the switch will have no effect");
+        if (this->filter_entity_declared_ && !features.FilterTimer)
+            ESP_LOGW(TAG, "filter_timer_expired/reset_filter_timer declared but this unit does not report a filter timer");
+        if (this->louver_v_declared_ && !features.VerticalLouvers)
+            ESP_LOGW(TAG, "advance_vertical_louver declared but this unit does not report vertical louvers");
+        if (this->louver_h_declared_ && !features.HorizontalLouvers)
+            ESP_LOGW(TAG, "advance_horizontal_louver declared but this unit does not report horizontal louvers");
+        if (this->zones_declared_ && !features.Zones)
+            ESP_LOGW(TAG, "zone_* declared but this unit does not report zone support");
     }
 }
 
@@ -228,11 +197,11 @@ void FujitsuHalcyonController::dump_config() {
     LOG_CLIMATE("", "FujitsuHalcyonController", this);
     ESP_LOGCONFIG(TAG, "  Controller Address: %u (%s)", this->controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->controller_address_), 0u, ControllerName.size() - 1)]);
     ESP_LOGCONFIG(TAG, "  Remote Temperature Controller Address: %u (%s)", this->temperature_controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->temperature_controller_address_), 0u, ControllerName.size() - 1)]);
-    LOG_SENSOR("  ", "Remote Temperature Controller Sensor", this->remote_sensor);
+    LOG_SENSOR("  ", "Remote Temperature Controller Sensor", this->remote_sensor_);
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
     ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
-    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor->state ? "ACTIVE" : "NORMAL");
+    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
 
     if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
@@ -258,12 +227,12 @@ void FujitsuHalcyonController::dump_config() {
             ESP_LOGCONFIG(TAG, "    - Zones: %s", buf[0] ? buf : "NONE");
             ESP_LOGCONFIG(TAG, "        Common Zone: %s", zones.ZoneCommon ? "YES" : "NO");
         }
-    }
 
-    if (!this->filter_sensor->is_internal())
-        ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor->state ? "EXPIRED" : "OK");
-    if (!this->use_sensor_switch->is_internal())
-        ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch->state ? "YES" : "NO");
+        if (features.FilterTimer && this->filter_sensor_ != nullptr)
+            ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor_->state ? "EXPIRED" : "OK");
+        if (features.SensorSwitching && this->use_sensor_switch_ != nullptr)
+            ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch_->state ? "YES" : "NO");
+    }
 
 #if defined(USE_TZSP)
     LOG_TZSP("  ", this);
@@ -296,8 +265,10 @@ climate::ClimateTraits FujitsuHalcyonController::traits() {
 
     auto& features = this->controller->get_features();
 
-    // Current temperature
-    if (this->temperature_sensor_ != nullptr || !this->remote_sensor->is_internal())
+    // Current temperature. A source exists if an external sensor is configured,
+    // or if we read temperature from a different controller on the bus.
+    if (this->temperature_sensor_ != nullptr ||
+        this->temperature_controller_address_ != this->controller_address_)
         traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
 
     // Current humidity
@@ -395,21 +366,21 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
     auto need_to_publish = false;
 
     // Error sensor (binary)
-    if (!this->error_sensor->has_state())
-        this->error_sensor->publish_state(data.IndoorUnit.Error);
+    if (!this->error_sensor_->has_state())
+        this->error_sensor_->publish_state(data.IndoorUnit.Error);
 
     // Error sensor (text)
-    if (!this->error_code_sensor->has_state() && !data.IndoorUnit.Error)
-        this->error_code_sensor->publish_state("");
+    if (!this->error_code_sensor_->has_state() && !data.IndoorUnit.Error)
+        this->error_code_sensor_->publish_state("");
 
     // Standby mode sensor
     // This can indicate defrosting, performing oil recovery, waiting for other units to complete....
-    if (!this->standby_sensor->has_state() || data.IndoorUnit.StandbyMode != this->standby_sensor->state)
-        this->standby_sensor->publish_state(data.IndoorUnit.StandbyMode);
+    if (!this->standby_sensor_->has_state() || data.IndoorUnit.StandbyMode != this->standby_sensor_->state)
+        this->standby_sensor_->publish_state(data.IndoorUnit.StandbyMode);
 
     // Filter sensor
-    if (this->controller->get_features().FilterTimer && (!this->filter_sensor->has_state() || data.IndoorUnit.FilterTimerExpired != this->filter_sensor->state))
-        this->filter_sensor->publish_state(data.IndoorUnit.FilterTimerExpired);
+    if (this->filter_sensor_ != nullptr && this->controller->get_features().FilterTimer && (!this->filter_sensor_->has_state() || data.IndoorUnit.FilterTimerExpired != this->filter_sensor_->state))
+        this->filter_sensor_->publish_state(data.IndoorUnit.FilterTimerExpired);
 
     // Target temperature / Setpoint
     if (data.Setpoint != this->target_temperature) {
@@ -449,11 +420,14 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data) {
-    for (size_t i = 0; i < this->zone_switches.size(); i++)
-        this->zone_switches[i]->publish_state(data.ActiveZones[i]);
+    for (size_t i = 0; i < this->zone_switches_.size(); i++)
+        if (this->zone_switches_[i] != nullptr)
+            this->zone_switches_[i]->publish_state(data.ActiveZones[i]);
 
-    this->zone_group_day_switch->publish_state(data.ActiveZoneGroups.Day);
-    this->zone_group_night_switch->publish_state(data.ActiveZoneGroups.Night);
+    if (this->zone_group_day_switch_ != nullptr)
+        this->zone_group_day_switch_->publish_state(data.ActiveZoneGroups.Day);
+    if (this->zone_group_night_switch_ != nullptr)
+        this->zone_group_night_switch_->publish_state(data.ActiveZoneGroups.Night);
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Packet& data) {
@@ -465,8 +439,8 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
         const bool has_error = data.Error.ErrorCode != 0;
 
         // Error sensor (boolean)
-        if (has_error != this->error_sensor->state)
-            this->error_sensor->publish_state(has_error);
+        if (has_error != this->error_sensor_->state)
+            this->error_sensor_->publish_state(has_error);
 
         // Error sensor (text): "AA BB[.CCC]" (source address + error code + extended).
         // Build the desired string first, then publish only if it differs from the
@@ -492,26 +466,30 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
             error_text = error_buf;
         }
 
-        if (error_text != this->error_code_sensor->get_raw_state())
-            this->error_code_sensor->publish_state(error_text);
+        if (error_text != this->error_code_sensor_->get_raw_state())
+            this->error_code_sensor_->publish_state(error_text);
     }
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Function& data) {
-    this->function->publish_state(data.Function);
-    this->function_value->publish_state(data.Value);
-    this->function_unit->publish_state(data.Unit);
+    this->function_number_->publish_state(data.Function);
+    this->function_value_number_->publish_state(data.Value);
+    this->function_unit_number_->publish_state(data.Unit);
 }
 
 void FujitsuHalcyonController::update_from_controller(const uint8_t address, const fujitsu_general::airstage::h::Config& data) {
     if (address == this->temperature_controller_address_ && data.Controller.Temperature) {
-        // Make remote controllers sensor visible on first data received
-        if (this->remote_sensor->is_internal())
-            this->remote_sensor->set_internal(false);
-
-        // Update remote controllers sensor component with remote controllers reported temperature
-        if (data.Controller.Temperature != this->remote_sensor->get_raw_state())
-            this->remote_sensor->publish_state(data.Controller.Temperature);
+        const float temperature = data.Controller.Temperature;
+        // When no external sensor is configured, the bus controller temperature is
+        // this component's current temperature. This does not depend on the
+        // remote_sensor entity, which is only created when declared.
+        if (this->temperature_sensor_ == nullptr && temperature != this->current_temperature) {
+            this->current_temperature = temperature;
+            this->publish_state();
+        }
+        // Publish it to the remote_sensor entity as well, if it was declared.
+        if (this->remote_sensor_ != nullptr && temperature != this->remote_sensor_->get_raw_state())
+            this->remote_sensor_->publish_state(temperature);
     }
 }
 

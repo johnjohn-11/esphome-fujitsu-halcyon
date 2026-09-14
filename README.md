@@ -5,6 +5,11 @@ An ESPHome component to control Fujitsu AirStage-H (product line previously know
 > [!WARNING]
 > Requires ESPHome 2026.3.0 or newer.
 
+> [!IMPORTANT]
+> Breaking change to the configuration. The feature entities (filter, louvers, zones, use sensor, remote temperature) are no longer created automatically. You now declare the ones you want in the `climate:` block, see [Home Assistant entities](#home-assistant-entities). If you are upgrading an existing configuration, add the declarations for the entities you were using or they will disappear from Home Assistant.
+
+## Basic configuration
+
 ```yaml
 substitutions:
   device_name: halcyon-controller
@@ -66,6 +71,17 @@ climate:
 
   #ignore_lock: true  # Ignore child/part/feature lock set on unit or primary/central remote control
 
+  # Optional feature entities. Uncomment the ones your unit reports (check the
+  # Supported Features sensor). Each key uses a default name. Add `name: "..."`
+  # under a key to customize it. A feature the unit does not have logs a warning
+  # at startup and the entity stays unavailable. Zones have their own section below.
+  #filter_timer_expired:
+  #reset_filter_timer:
+  #advance_vertical_louver:
+  #advance_horizontal_louver:
+  #use_sensor:      # also needs temperature_sensor_id and unit function settings 42 and 48
+  #remote_sensor:   # needs another controller on the bus, see temperature_controller_address
+
   # To capture communications for debugging / analysis
   # Use Wireshark with https://github.com/Omniflux/fujitsu-airstage-h-dissector
   #tzsp:
@@ -73,7 +89,11 @@ climate:
   #  protocol: 255
 ```
 
-You can use esphome (or Home Assistant) sensors to report the current temperature and humidity to the Home Assistant climate component.
+This basic configuration exposes the climate control and the core diagnostics. To add the optional feature entities (filter, louvers, zones, use sensor, remote temperature), declare them as shown in [Home Assistant entities](#home-assistant-entities).
+
+## Reporting temperature and humidity from Home Assistant
+
+You can use ESPHome (or Home Assistant) sensors to report the current temperature and humidity to the Home Assistant climate component.
 
 ```yaml
 sensor:
@@ -95,15 +115,15 @@ climate:
     humidity_sensor: my_humidity_sensor
 ```
 
-If your unit supports sensor switching and has the function settings configured appropriately (see your installation manual, usually settings `42` and `48`), it can also be set to use this sensor instead of the sensor in its air intake. When available, a switch will appear in the Home Assistant device page in the Configuration section named `Use Sensor`.
+If your unit supports sensor switching and has the function settings configured appropriately (see your installation manual, usually settings `42` and `48`), it can also be set to use this sensor instead of the sensor in its air intake. Declare the `use_sensor` entity (see below) to expose that switch.
 
-## Per-unit feature configuration
+## Unit capabilities
 
-By default, the controller probes the indoor unit with a `FeatureRequest` packet and uses the unit's reported feature set. Some indoor units do not support feature negotiation: they advertise `UnknownFlags == 2` (handled automatically by falling through to in-code `DefaultFeatures`), or they ignore the `FeatureRequest` and keep replying with `Config` packets (also handled automatically since the first such `Config` is treated as "no negotiation support"). A small number of units have been observed to enter a non-recoverable error state when sent a `FeatureRequest`; for those, set `autoconf: false` to skip the probe entirely.
+The component needs to know what your indoor unit supports (which modes, fan speeds, swing directions, and options such as economy, filter timer, sensor switching, and zones) so it can show the right climate controls and validate the entities you declare. By default it asks the unit directly and uses the answer, so **most users need nothing here**.
 
-When negotiation does not yield a `Features` packet, you can override the in-code defaults from YAML to match your specific indoor unit. Anything not specified keeps the in-code `DefaultFeatures` value.
+That probe is `autoconf: true`, the default. A few units enter a non-recoverable error state when probed, so for those set `autoconf: false` to skip it. Units that simply do not answer are handled automatically, the component falls back to its in-code defaults.
 
-The Zone feature currently requires autoconf to remain enabled.
+If your unit does not answer and the defaults are wrong for it, state its capabilities in YAML so the controls and the declared entities behave correctly. Anything not specified keeps its default value.
 
 ```yaml
 climate:
@@ -111,20 +131,16 @@ climate:
     name: None
     controller_address: 0
 
-    # Skip the FeatureRequest probe entirely. Use this for units known to
-    # enter a non-recoverable error state when probed. Optional; default true.
+    # Skip the FeatureRequest probe entirely. Use this only for units known to
+    # enter a non-recoverable error state when probed. Optional, default true.
     autoconf: false
 
-    # Override the in-code DefaultFeatures. The IU's reported Features (if any)
-    # always wins; these values apply only when no Features packet arrives.
-    supported_modes:      [AUTO, COOL, HEAT, DRY, FAN]    # any subset
-    supported_fan_modes:  [AUTO, QUIET, LOW, MEDIUM, HIGH] # any subset
-    supported_swing_modes: [VERTICAL]                      # VERTICAL / HORIZONTAL / BOTH
-
-    filter_timer: true
-    sensor_switching: true
-    maintenance: true
-    economy_mode: true
+    # Capabilities. Used only when the unit does not report a Features packet.
+    # The words are the ones the Supported Features sensor prints.
+    supported_modes:       [AUTO, COOL, HEAT, DRY, FAN]     # any subset
+    supported_fan_modes:   [AUTO, QUIET, LOW, MEDIUM, HIGH] # any subset
+    supported_swing_modes: [VERTICAL]                       # VERTICAL / HORIZONTAL / BOTH
+    supported_features:    [FILTER_TIMER, SENSOR_SWITCHING, MAINTENANCE, ECONOMY]  # any subset
 ```
 
 Behavior matrix:
@@ -135,9 +151,16 @@ Behavior matrix:
 | `true` | no | YAML overrides applied on top of `DefaultFeatures` |
 | `false` | (not probed) | YAML overrides applied on top of `DefaultFeatures` |
 
+> [!NOTE]
+> These lists state what the unit supports. They do not create entities, see [Home Assistant entities](#home-assistant-entities) for that. Zones cannot be stated here, zone support has to come from the unit itself, so keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity is created but has no effect.
+
 ## Home Assistant entities
 
-The following entities are created automatically in Home Assistant. Feature-dependent entities (louvers, filter, sensor switching) are only exposed once the unit has reported its capabilities.
+Core entities (the climate control, the diagnostics, and the function controls) are created automatically. The feature entities are opt-in: declare the ones your unit has and only those are created. They are shown commented in the [Basic configuration](#basic-configuration) example above, and zones have [their own section](#zones). An entity you do not declare simply does not exist.
+
+Not sure what your unit has? Flash the basic configuration first and read the **Supported Features** diagnostic sensor. It lists exactly what the indoor unit reports. Then declare the matching entities.
+
+If you declare a feature entity that the indoor unit does not actually report, the component logs a warning once at startup (for example, `zone_* declared but this unit does not report zone support`). The entity is still created, but it will not reflect or control that unsupported feature. Declaring `use_sensor` without `temperature_sensor_id` is the one case that fails validation instead, since the switch would have no temperature to give the unit.
 
 ### Climate
 | Entity | Type | Description |
@@ -153,22 +176,39 @@ The following entities are created automatically in Home Assistant. Feature-depe
 | Error Code | Text sensor | Enabled | Fault code in `AA BB.CCC` (unit address + error code + extended error code) |
 | Initialization Stage | Text sensor | Enabled | Current initialization progress, (5/5) indicates complete |
 | Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| V.Louvers \| H.Louvers \| Zones |`
-| Remote Temperature Sensor | Sensor | Disabled | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
-| Filter Timer Expired | Binary sensor | Feature-dependent | Set when the filter maintenance timer has elapsed |
+| Remote Temperature Sensor | Sensor | If declared | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
+| Filter Timer Expired | Binary sensor | If declared | Set when the filter maintenance timer has elapsed |
 
 ### Configuration
 | Entity | Type | Default | Description |
 |--------|------|---------|-------------|
-| Use Sensor | Switch | Feature-dependent | Route the external temperature sensor reading to the indoor unit (requires unit support and `temperature_sensor_id` configured, see settings `42` and `48`) |
-| Reset Filter Timer | Button | Feature-dependent | Reset the filter maintenance timer |
-| Advance Vertical Louver | Button | Feature-dependent | Step the vertical louver to the next position |
-| Advance Horizontal Louver | Button | Feature-dependent | Step the horizontal louver to the next position |
+| Use Sensor | Switch | If declared | Route the external temperature sensor reading to the indoor unit (requires unit support and `temperature_sensor_id` configured, see settings `42` and `48`) |
+| Reset Filter Timer | Button | If declared | Reset the filter maintenance timer |
+| Advance Vertical Louver | Button | If declared | Step the vertical louver to the next position |
+| Advance Horizontal Louver | Button | If declared | Step the horizontal louver to the next position |
 | Reinitialize | Button | Enabled | Re-run the initialization sequence without rebooting |
 | Function / Function Value / Function Unit | Number | Enabled | Raw function register access |
-| Function_Read / Function_Write | Button | Enabled / Disabled | Trigger a function register read or write |
-| Zone `#` | Switch | Feature-dependent | Enable/Disable zone `#` |
-| Zone Group Day | Switch | Feature-dependent | Enable/Disable zone group Day |
-| Zone Group Night | Switch | Feature-dependent | Enable/Disable zone group Night |
+| Function Read / Function Write | Button | Enabled / Disabled | Trigger a function register read or write |
+| Zone `#` | Switch | If declared | Enable/Disable zone `#` |
+| Zone Group Day | Switch | If declared | Enable/Disable zone group Day |
+| Zone Group Night | Switch | If declared | Enable/Disable zone group Night |
+
+## Zones
+
+For ducted or zoned units, declare the zones you have and, optionally, the day and night groups. Zone support and the set of enabled zones are read from the indoor unit, so this requires `autoconf` to stay on. There is no capability key for zones, so do not set `autoconf: false` if you use zones. The zone switches always show the state reported by the unit, they are not restored from the ESP's memory after a reboot.
+
+```yaml
+climate:
+  - platform: fujitsu-halcyon
+    name: None
+    controller_address: 0
+
+    zone_1:
+    zone_2:
+    # zone_3 through zone_8 as needed. Add `name: "..."` under a key to customize.
+    zone_group_day:
+    zone_group_night:
+```
 
 ## Troubleshooting
 
