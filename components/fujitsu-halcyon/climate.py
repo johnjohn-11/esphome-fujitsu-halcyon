@@ -162,9 +162,9 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
         cv.Optional(CONF_TEMPERATURE_CONTROLLER_ADDRESS, default=0): cv.int_range(0, 15),
         cv.Optional(CONF_IGNORE_LOCK, default=False): cv.boolean,
-        # If initialization has not completed after this long while packets are
-        # being received, restart it automatically (same as the Reinitialize
-        # button). 0 disables.
+        # If initialization has not completed after this long, and the unit has
+        # answered at least once, restart it automatically (same as the
+        # Reinitialize button). 0 disables.
         cv.Optional(CONF_INIT_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
         cv.Optional(CONF_TEMPERATURE_SENSOR): cv.use_id(sensor.Sensor),
         # After this long without a valid temperature_sensor_id reading, the unit is
@@ -434,9 +434,9 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_function_unit_number(n))
 
     # Feature-dependent entities. Registered only when declared in YAML, so an
-    # undeclared entity is never exposed to Home Assistant. No runtime reveal.
-    # These are created here in python, so nothing lives in the header when the
-    # entity is not declared. Each is parented to the controller.
+    # undeclared entity is never exposed to Home Assistant. These are created
+    # here in python, so nothing lives in the header when the entity is not
+    # declared. Each is parented to the controller.
     if CONF_ADVANCE_VERTICAL_LOUVER in config:
         b = await button.new_button(config[CONF_ADVANCE_VERTICAL_LOUVER])
         await cg.register_parented(b, var)

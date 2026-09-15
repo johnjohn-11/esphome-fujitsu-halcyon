@@ -156,8 +156,8 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         bool transmitted_{false};
 
         // Initialization watchdog. If the sequence has not reached Complete within
-        // init_timeout_ms_ while packets are being received, it is restarted (same
-        // as the Reinitialize button). A missed packet during startup, or a glitch
+        // init_timeout_ms_, and the unit has answered at least once, it is restarted
+        // (same as the Reinitialize button). A missed packet during startup, or a glitch
         // that reboots the ESP mid-sequence, otherwise leaves the component stuck
         // with no features and no control until someone presses Reinitialize.
         uint32_t init_timeout_ms_{0};

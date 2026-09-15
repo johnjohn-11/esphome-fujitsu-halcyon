@@ -3,10 +3,12 @@
 An ESPHome component to control Fujitsu AirStage-H (product line previously known as Halcyon) units via the three-wire (RWB) bus.
 
 > [!WARNING]
-> Requires ESPHome 2026.3.0 or newer.
+> **Breaking change to the configuration.** Upgrading an existing configuration:
+> - Feature entities (filter, louvers, zones, use sensor, remote temperature) are no longer created automatically. Declare the ones you want in the `climate:` block, see [Home Assistant entities](#home-assistant-entities), or they disappear from Home Assistant.
+> - `supported_features` is now the list of capabilities to assume when the unit does not report its own, which is what drives the climate controls. It replaces the `filter_timer`, `sensor_switching`, `maintenance` and `economy_mode` booleans.
 
 > [!IMPORTANT]
-> Breaking change to the configuration. The feature entities (filter, louvers, zones, use sensor, remote temperature) are no longer created automatically. You now declare the ones you want in the `climate:` block, see [Home Assistant entities](#home-assistant-entities). If you are upgrading an existing configuration, add the declarations for the entities you were using or they will disappear from Home Assistant.
+> Requires ESPHome 2026.3.0 or newer.
 
 ## Basic configuration
 
@@ -21,8 +23,10 @@ external_components:
 #  - source: github://Omniflux/esphome-tzsp
   - source: github://Omniflux/esphome-fujitsu-halcyon
 
-packages:
-  wifi: !include common/wifi.yaml
+# Add wifi_ssid and wifi_password to your secrets.yaml
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
 
 esphome:
   name: ${device_name}
@@ -62,7 +66,9 @@ climate:
 - platform: fujitsu-halcyon
   name: None  # Use device friendly_name
 
-  # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses
+  # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses.
+  # Use 0 if this ESP is the only controller on the bus. Use 1 (or the next free
+  # address) if a wired wall controller is installed, since it takes 0.
   controller_address: 1  # 0=Primary, 1=Secondary
   #temperature_controller_address: 0  # Fujitsu controller address to read temperature from
 
@@ -74,7 +80,7 @@ climate:
   # Optional feature entities. Uncomment the ones your unit reports (check the
   # Supported Features sensor). Each key uses a default name. Add `name: "..."`
   # under a key to customize it. A feature the unit does not have logs a warning
-  # at startup and the entity stays unavailable. Zones have their own section below.
+  # at startup and the entity is created but has no effect. Zones have their own section below.
   #filter_timer_expired:
   #reset_filter_timer:
   #advance_vertical_louver:
@@ -100,8 +106,9 @@ sensor:
   - platform: homeassistant # https://esphome.io/components/sensor/homeassistant.html
     id: my_temperature_sensor
     entity_id: sensor.my_temperature_sensor  # Home Assistant entity_id
-    filters: # Sensor value must be °C. Convert from °F if your source is Fahrenheit.
-      - lambda: return fahrenheit_to_celsius(x);
+    # Sensor value must be °C. Uncomment the filter below if your source is Fahrenheit.
+    #filters:
+    #  - lambda: return fahrenheit_to_celsius(x);
 
   - platform: homeassistant
     id: my_humidity_sensor
@@ -127,13 +134,14 @@ climate:
     temperature_sensor_id: my_temperature_sensor
     sensor_timeout: 5min  # Optional, default 5min. 0s disables.
     use_sensor:
+      # restore_mode: RESTORE_DEFAULT_ON  # start ON at first boot, default RESTORE_DEFAULT_OFF
 ```
 
 ## Unit capabilities
 
 The component needs to know what your indoor unit supports (which modes, fan speeds, swing directions, and options such as economy, filter timer, sensor switching, and zones) so it can show the right climate controls and validate the entities you declare. By default it asks the unit directly and uses the answer, so **most users need nothing here**.
 
-That probe is `autoconf: true`, the default. One unit is known to enter a non-recoverable error state when probed, so for such a unit set `autoconf: false` to skip it. A unit that refuses the request, by answering with an empty error, or that simply does not answer, is handled automatically: the component logs a warning naming this option, falls back to its in-code defaults, and finishes starting up.
+That probe is `autoconf: true`, the default. One unit is known to enter a non-recoverable error state when probed, so for such a unit set `autoconf: false` to skip it. A unit that refuses the request, by answering with an empty error, is handled automatically: the component logs a warning naming this option, falls back to its in-code defaults, and finishes starting up. A unit that simply does not answer falls back the same way, without a warning.
 
 If your unit does not answer and the defaults are wrong for it, state its capabilities in YAML so the controls and the declared entities behave correctly. Anything not specified keeps its default value.
 
@@ -163,6 +171,8 @@ Behavior matrix:
 | `true` | no | YAML overrides applied on top of `DefaultFeatures` |
 | `false` | (not probed) | YAML overrides applied on top of `DefaultFeatures` |
 
+`IU` is the indoor unit. `DefaultFeatures` is the component's built-in fallback capability set, used when the unit does not report its own.
+
 > [!NOTE]
 > These lists state what the unit supports. They do not create entities, see [Home Assistant entities](#home-assistant-entities) for that. Zones cannot be stated here, zone support has to come from the unit itself, so keep `autoconf` on if you use zones. If you declare an entity whose capability is neither detected nor stated here, the component logs a warning at startup and the entity is created but has no effect.
 
@@ -171,6 +181,19 @@ Behavior matrix:
 Core entities (the climate control, the diagnostics, and the function controls) are created automatically. The feature entities are opt-in: declare the ones your unit has and only those are created. They are shown commented in the [Basic configuration](#basic-configuration) example above, and zones have [their own section](#zones). An entity you do not declare simply does not exist.
 
 Not sure what your unit has? Flash the basic configuration first and read the **Supported Features** diagnostic sensor. It lists exactly what the indoor unit reports. Then declare the matching entities.
+
+Each name in that sensor maps to the entities you declare. Some features expose more than one entity, and the entity keys are named for what they do rather than after the reported feature.
+
+| Reported in Supported Features | `supported_features` entry (only if the unit does not report Features) | Entities to declare |
+|---|---|---|
+| Sensor Switching | `SENSOR_SWITCHING` | `use_sensor` |
+| Filter Timer | `FILTER_TIMER` | `filter_timer_expired`, `reset_filter_timer` |
+| Vertical Louvers | | `advance_vertical_louver` |
+| Horizontal Louvers | | `advance_horizontal_louver` |
+| Zones | | `zone_1` to `zone_8`, `zone_group_day`, `zone_group_night` |
+| Economy | `ECONOMY` | Eco preset on the climate entity, no separate entity |
+| Maintenance | `MAINTENANCE` | diagnostic only, no entity |
+| Not reported, needs another wall controller on the bus | | `remote_sensor` (see `temperature_controller_address`) |
 
 If you declare a feature entity that the indoor unit does not actually report, the component logs a warning once at startup (for example, `zone_* declared but this unit does not report zone support`). The entity is still created, but it will not reflect or control that unsupported feature. Declaring `use_sensor` without `temperature_sensor_id` is the one case that fails validation instead, since the switch would have no temperature to give the unit.
 
@@ -186,8 +209,8 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Standby Mode | Binary sensor | Enabled | Active during defrost, oil recovery, or multi-unit synchronization |
 | Error | Binary sensor | Enabled | Indicates an active fault on the indoor unit |
 | Error Code | Text sensor | Enabled | Fault code in `AA BB.CCC` (unit address + error code + extended error code) |
-| Initialization Stage | Text sensor | Enabled | Current initialization progress, (5/5) indicates complete |
-| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| V.Louvers \| H.Louvers \| Zones |`
+| Initialization Stage | Text sensor | Enabled | Current initialization progress with a label, for example `Complete (7/7)` |
+| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones` |
 | Remote Temperature Sensor | Sensor | If declared | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
 | Filter Timer Expired | Binary sensor | If declared | Set when the filter maintenance timer has elapsed |
 
@@ -228,7 +251,7 @@ View the ESPHome log for the device.
 
 ### Verify receiving data
 
-```yaml
+```text
 RX: 00 A0 XX XX XX XX XX XX
 ```
 
@@ -242,11 +265,11 @@ uart:
 
 ### Verify transmitting data
 
-```yaml
+```text
 TX: XX XX XX XX XX XX XX XX
 ```
 
-If there are no transmit lines in the log, this component is not receiving the token allowing it to transmit.
+If there are no transmit lines in the log, this component is not receiving the token allowing it to transmit. The component logs a warning to this effect after about 15 seconds without a token: `Receiving data but no transmit token after 15 s`.
 
 Ensure `controller_address` is configured correctly and, if `controller_address` > `0`, this component is powered on before (or at least simultaneously with) the preceding controllers. Secondary controllers only get one chance to register for the token when the primary (or preceding) controller powers on.
 
@@ -256,7 +279,7 @@ You may want to temporarily disconnect the OEM remote controls and connect only 
 
 The **Initialization Stage** sensor shows where the sequence is. It normally reaches `Complete (7/7)` within a few seconds of the first received packet. A missed packet during startup, or a power glitch that reboots the ESP in the middle of the sequence, can leave it stuck at an earlier stage, with **Supported Features** empty and no control from Home Assistant.
 
-The component watches for this. If initialization has not completed after `init_timeout` (default `30s`) while packets are being received, it restarts the sequence on its own, exactly as the **Reinitialize** button does, and logs a warning:
+The component watches for this. If initialization has not completed after `init_timeout` (default `30s`), and the unit has answered at least once, it restarts the sequence on its own, exactly as the **Reinitialize** button does, and logs a warning:
 
 ```text
 Initialization stuck at 'Waiting for features (2/7)' for 30 s, restarting the sequence (attempt 1)

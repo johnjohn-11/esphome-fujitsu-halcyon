@@ -11,7 +11,7 @@
 
 namespace esphome::fujitsu_general_airstage_h_controller {
 
-static const auto TAG = "fujitsu_halcyon";
+static const char* TAG = "fujitsu_halcyon";
 
 // If we are receiving from the bus but have not been handed a transmit token
 // within this window, control commands cannot be delivered (the unit is
@@ -315,7 +315,7 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     // Publish supported features as a human-readable diagnostic string.
     {
         char buf[255];
-        std::snprintf(buf, sizeof(buf), "Mode: %s%s%s%s%s | Fan: %s%s%s%s%s" "%s%s%s%s%s%s%s",
+        std::snprintf(buf, sizeof(buf), "Mode:%s%s%s%s%s | Fan:%s%s%s%s%s" "%s%s%s%s%s%s%s",
             features.Mode.Auto ? " Auto" : "",
             features.Mode.Heat ? " Heat" : "",
             features.Mode.Cool ? " Cool" : "",
@@ -328,13 +328,13 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             features.FanSpeed.Low    ? " Low"    : "",
             features.FanSpeed.Quiet  ? " Quiet"  : "",
 
-            features.EconomyMode       ? " | Economy"          : "",
-            features.FilterTimer       ? " | Filter Timer"     : "",
-            features.SensorSwitching   ? " | Sensor Switching" : "",
-            features.Maintenance       ? " | Maintenance"      : "",
-            features.VerticalLouvers   ? " | V.Louvers"        : "",
-            features.HorizontalLouvers ? " | H.Louvers"        : "",
-            features.Zones             ? " | Zones"            : ""
+            features.EconomyMode       ? " | Economy"            : "",
+            features.FilterTimer       ? " | Filter Timer"       : "",
+            features.SensorSwitching   ? " | Sensor Switching"   : "",
+            features.Maintenance       ? " | Maintenance"        : "",
+            features.VerticalLouvers   ? " | Vertical Louvers"   : "",
+            features.HorizontalLouvers ? " | Horizontal Louvers" : "",
+            features.Zones             ? " | Zones"              : ""
         );
         this->supported_features_sensor_->publish_state(buf);
     }
@@ -359,10 +359,6 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
 
     if (features.FilterTimer && this->filter_sensor_ != nullptr && this->filter_sensor_->has_state())
         this->filter_sensor_->publish_state(this->filter_sensor_->state);
-
-    // Zone switches are not published here. Their state comes from the unit's
-    // ZoneConfig packet, published in update_from_device(ZoneConfig) once the
-    // ZoneRequestActive stage has read it.
 
     // Warn once, at completion, if the user declared a feature entity that the
     // unit does not actually report. These entities were opted into from YAML.
@@ -656,6 +652,8 @@ void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstag
         this->publish_state();
 }
 
+// Publishes the zone switches from the unit's ZoneConfig packet, first read at the
+// ZoneRequestActive stage.
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data) {
     for (size_t i = 0; i < this->zone_switches_.size(); i++)
         if (this->zone_switches_[i] != nullptr)
