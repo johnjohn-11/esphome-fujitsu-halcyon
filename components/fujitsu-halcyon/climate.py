@@ -62,9 +62,9 @@ CONF_INIT_TIMEOUT = "init_timeout"
 # When the indoor unit responds to a FeatureRequest with a Features packet, the
 # IU's reported feature set is used and these options are ignored. Use these
 # options when (a) the IU does not support feature negotiation (responds with
-# Config instead of Features, or has UnknownFlags == 2), or (b) you want to
-# disable probing entirely with `autoconf: false` for IUs known to misbehave on
-# FeatureRequest. Anything not specified keeps the in-code DefaultFeatures value.
+# Config instead of Features), or (b) you want to disable probing entirely with
+# `autoconf: false` for IUs known to misbehave on FeatureRequest. Anything not
+# specified keeps the in-code DefaultFeatures value.
 CONF_AUTOCONF = "autoconf"
 CONF_SUPPORTED_MODES = "supported_modes"
 CONF_SUPPORTED_FAN_MODES = "supported_fan_modes"

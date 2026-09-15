@@ -76,18 +76,15 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
         switch (packet.Type) {
             [[likely]] case PacketTypeEnum::Config:
                 if (this->initialization_stage == InitializationStageEnum::DetectFeatureSupport) {
-                    // Advance to FindNextControllerTx (skip feature negotiation entirely) if:
-                    //  - autoconf is disabled (use the configured features directly), or
-                    //  - the IU's UnknownFlags == 2 (no feature negotiation support).
-                    // Otherwise, transition to FeatureRequestTx to send a FeatureRequest packet
-                    // when our turn with the token comes around. The actual transmission and
-                    // the subsequent transition to FeatureRequestRx happen later in this function.
-                    // Note: this->features is already initialized to DefaultFeatures (or to a
-                    // user-supplied override via set_features()), so no assignment is needed here.
-                    if (!this->autoconf ||
-                        packet.Config.IndoorUnit.UnknownFlags == 2) {
+                    // Advance to FindNextControllerTx (skip feature negotiation entirely) if
+                    // autoconf is disabled, otherwise transition to FeatureRequestTx to send a
+                    // FeatureRequest packet when our turn with the token comes around. The
+                    // actual transmission and the subsequent transition to FeatureRequestRx
+                    // happen later in this function. this->features is already initialized to
+                    // DefaultFeatures (or to a user-supplied override via set_features()).
+                    if (!this->autoconf)
                         this->set_initialization_stage(InitializationStageEnum::FindNextControllerTx);
-                    } else
+                    else
                         this->set_initialization_stage(InitializationStageEnum::FeatureRequestTx);
                 }
                 else if (this->initialization_stage == InitializationStageEnum::FeatureRequestRx) {
@@ -113,6 +110,15 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
                 break;
 
             case PacketTypeEnum::Error:
+                // A unit without feature negotiation answers the FeatureRequest with an
+                // empty error instead of a Features packet. Take it as the answer and
+                // carry on with the features already in this->features.
+                if (this->initialization_stage == InitializationStageEnum::FeatureRequestRx &&
+                    packet.Error.ErrorCode == 0 && packet.Error.ErrorCodeExtended == 0) {
+                    ESP_LOGW(TAG, "Indoor unit refused the feature request, using the configured features. Set autoconf: false to stop asking");
+                    this->set_initialization_stage(InitializationStageEnum::FindNextControllerTx);
+                }
+
                 if (this->callbacks.Error)
                     deferred_callback = [&](){ this->callbacks.Error(packet); };
                 break;
