@@ -11,7 +11,7 @@
 
 namespace esphome::fujitsu_general_airstage_h_controller {
 
-static const auto TAG = "esphome::fujitsu_general_airstage_h_controller";
+static const auto TAG = "fujitsu_halcyon";
 
 // If we are receiving from the bus but have not been handed a transmit token
 // within this window, control commands cannot be delivered (the unit is
@@ -36,6 +36,9 @@ static constexpr std::array<const char*, 8> STAGE_LABELS = {
     "Reading zones",        // ZoneRequestActive
     "Complete",             // Complete
 };
+
+static_assert(STAGE_LABELS.size() == static_cast<size_t>(fujitsu_general::airstage::h::InitializationStageEnum::Complete) + 1,
+              "STAGE_LABELS is missing an entry for a new InitializationStageEnum value");
 
 // Formats "<label> (<stage>/<last>)" into buf.
 static void format_stage(char* buf, size_t size, fujitsu_general::airstage::h::InitializationStageEnum stage) {
@@ -78,10 +81,13 @@ void FujitsuHalcyonController::check_init_timeout_() {
 
     const auto timeout_s = static_cast<unsigned>(this->init_timeout_ms_ / 1000);
     const auto attempt = static_cast<unsigned>(this->init_attempts_);
-    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS)
+    // Braces matter here: below the debug log level the macro expands to nothing,
+    // and a braceless body would leave an empty statement (-Wempty-body).
+    if (this->init_attempts_ <= INIT_WATCHDOG_WARN_ATTEMPTS) {
         ESP_LOGW(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
-    else
+    } else {
         ESP_LOGD(TAG, "Initialization stuck at '%s' for %u s, restarting the sequence (attempt %u)", stage, timeout_s, attempt);
+    }
 
     this->controller->reinitialize();
 }
@@ -404,28 +410,37 @@ void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, s
 }
 
 void FujitsuHalcyonController::dump_config() {
+    // Fixed lines are grouped into single ESP_LOGCONFIG calls with embedded
+    // newlines, the style ESPHome now prefers because each call costs flash.
     LOG_CLIMATE("", "FujitsuHalcyonController", this);
-    ESP_LOGCONFIG(TAG, "  Controller Address: %u (%s)", this->controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->controller_address_), 0u, ControllerName.size() - 1)]);
-    ESP_LOGCONFIG(TAG, "  Remote Temperature Controller Address: %u (%s)", this->temperature_controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->temperature_controller_address_), 0u, ControllerName.size() - 1)]);
+    ESP_LOGCONFIG(TAG,
+        "  Controller Address: %u (%s)\n"
+        "  Remote Temperature Controller Address: %u (%s)",
+        this->controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->controller_address_), 0u, ControllerName.size() - 1)],
+        this->temperature_controller_address_, ControllerName[std::clamp(static_cast<size_t>(this->temperature_controller_address_), 0u, ControllerName.size() - 1)]);
     LOG_SENSOR("  ", "Remote Temperature Controller Sensor", this->remote_sensor_);
     LOG_SENSOR("  ", "Temperature Sensor", this->temperature_sensor_);
     LOG_SENSOR("  ", "Humidity Sensor", this->humidity_sensor_);
-    ESP_LOGCONFIG(TAG, "  Ignore Lock: %s", this->ignore_lock_ ? "YES" : "NO");
-    ESP_LOGCONFIG(TAG, "  Init Timeout: %u s%s", static_cast<unsigned>(this->init_timeout_ms_ / 1000), this->init_timeout_ms_ ? "" : " (disabled)");
-    if (this->temperature_sensor_ != nullptr)
+    ESP_LOGCONFIG(TAG,
+        "  Ignore Lock: %s\n"
+        "  Init Timeout: %u s%s\n"
+        "  Standby Mode: %s",
+        this->ignore_lock_ ? "YES" : "NO",
+        static_cast<unsigned>(this->init_timeout_ms_ / 1000), this->init_timeout_ms_ ? "" : " (disabled)",
+        this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
+    if (this->temperature_sensor_ != nullptr) {
         ESP_LOGCONFIG(TAG, "  Sensor Timeout: %u s%s", static_cast<unsigned>(this->sensor_timeout_ms_ / 1000), this->sensor_timeout_ms_ ? "" : " (disabled)");
-    ESP_LOGCONFIG(TAG, "  Standby Mode: %s", this->standby_sensor_->state ? "ACTIVE" : "NORMAL");
+    }
 
     if (this->controller != nullptr && this->controller->is_initialized()) {
         auto& features = this->controller->get_features();
 
-        ESP_LOGCONFIG(TAG, "  Additional Features:%s", features.FilterTimer || features.Maintenance || features.SensorSwitching || features.Zones ? "" : " NONE");
-        if (features.FilterTimer)
-            ESP_LOGCONFIG(TAG, "    - Filter Timer");
-        if (features.Maintenance)
-            ESP_LOGCONFIG(TAG, "    - Maintenance");
-        if (features.SensorSwitching)
-            ESP_LOGCONFIG(TAG, "    - Sensor Switching");
+        ESP_LOGCONFIG(TAG,
+            "  Additional Features:%s%s%s%s",
+            features.FilterTimer || features.Maintenance || features.SensorSwitching || features.Zones ? "" : " NONE",
+            features.FilterTimer ? "\n    - Filter Timer" : "",
+            features.Maintenance ? "\n    - Maintenance" : "",
+            features.SensorSwitching ? "\n    - Sensor Switching" : "");
         if (features.Zones) {
             auto& zones = this->controller->get_zones();
 
@@ -437,14 +452,18 @@ void FujitsuHalcyonController::dump_config() {
                     offset += std::snprintf(buf + offset, sizeof(buf) - offset, "%u, ", i + 1);
             buf[offset ? offset - 2 : 0] = '\0';
 
-            ESP_LOGCONFIG(TAG, "    - Zones: %s", buf[0] ? buf : "NONE");
-            ESP_LOGCONFIG(TAG, "        Common Zone: %s", zones.ZoneCommon ? "YES" : "NO");
+            ESP_LOGCONFIG(TAG,
+                "    - Zones: %s\n"
+                "        Common Zone: %s",
+                buf[0] ? buf : "NONE", zones.ZoneCommon ? "YES" : "NO");
         }
 
-        if (features.FilterTimer && this->filter_sensor_ != nullptr)
+        if (features.FilterTimer && this->filter_sensor_ != nullptr) {
             ESP_LOGCONFIG(TAG, "  Filter Timer: %s", this->filter_sensor_->state ? "EXPIRED" : "OK");
-        if (features.SensorSwitching && this->use_sensor_switch_ != nullptr)
+        }
+        if (features.SensorSwitching && this->use_sensor_switch_ != nullptr) {
             ESP_LOGCONFIG(TAG, "  Use Temperature Sensor: %s", this->use_sensor_switch_->state ? "YES" : "NO");
+        }
 
         // Same list the INFO log prints when initialization completes, repeated
         // here so it is still visible to someone opening the log later.
@@ -458,13 +477,6 @@ void FujitsuHalcyonController::dump_config() {
 #if defined(USE_TZSP)
     LOG_TZSP("  ", this);
 #endif
-
-    this->check_uart_settings(
-        fujitsu_general::airstage::h::UARTConfig.baud_rate,
-        this->uart_stop_bits_to_uart_config_stop_bits(fujitsu_general::airstage::h::UARTConfig.stop_bits),
-        this->uart_parity_to_uart_config_parity(fujitsu_general::airstage::h::UARTConfig.parity),
-        this->uart_data_bits_to_uart_config_data_bits(fujitsu_general::airstage::h::UARTConfig.data_bits)
-    );
 
     this->dump_traits_(TAG);
 }
@@ -807,34 +819,6 @@ constexpr std::pair<bool, bool> FujitsuHalcyonController::climate_swing_mode_to_
 
         // Should not get to this point
         default: return SwingMode(false, false);
-    }
-}
-
-constexpr uint8_t FujitsuHalcyonController::uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) {
-    switch (bits) {
-        case UART_DATA_5_BITS: return 5;
-        case UART_DATA_6_BITS: return 6;
-        case UART_DATA_7_BITS: return 7;
-
-        // ESPHome UART only supports 5, 6, 7, 8
-        default: return 8;
-    }
-}
-
-constexpr uint8_t FujitsuHalcyonController::uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) {
-    switch (bits) {
-        case UART_STOP_BITS_1: return 1;
-
-        // ESPHome UART only supports 1 and 2
-        default: return 2;
-    }
-}
-
-constexpr uart::UARTParityOptions FujitsuHalcyonController::uart_parity_to_uart_config_parity(uart_parity_t parity) {
-    switch (parity) {
-        case UART_PARITY_EVEN:  return uart::UART_CONFIG_PARITY_EVEN;
-        case UART_PARITY_ODD:   return uart::UART_CONFIG_PARITY_ODD;
-        default:                return uart::UART_CONFIG_PARITY_NONE;
     }
 }
 

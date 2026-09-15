@@ -10,7 +10,7 @@ using esphome::esp_log_printf_;
 
 namespace fujitsu_general::airstage::h {
 
-static const char* TAG = "fujitsu_general::airstage::h::Controller";
+static const char* TAG = "fujitsu_halcyon";
 
 void Controller::process_uart_data() {
     auto buffer_len = this->uart_available_bytes();

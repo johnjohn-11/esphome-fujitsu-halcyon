@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <memory>
 
 #include <esphome/core/component.h>
@@ -91,7 +92,7 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
                 this->controller->set_function(this->function_number_->state, this->function_value_number_->state, this->function_unit_number_->state);
         }
 
-        FujitsuHalcyonController(uart::IDFUARTComponent *parent, uint8_t controller_address) : uart::UARTDevice(parent), controller_address_(controller_address) {}
+        explicit FujitsuHalcyonController(uint8_t controller_address) : controller_address_(controller_address) {}
 
         void loop() override;
         void setup() override;
@@ -221,7 +222,7 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.
         // uart_set_mode failure), so dump_config()/traits() must null-check before
         // dereferencing since they can run on a failed component.
-        fujitsu_general::airstage::h::Controller* controller = nullptr;
+        fujitsu_general::airstage::h::Controller* controller{nullptr};
 
         void update_from_device(const fujitsu_general::airstage::h::Config& data);
         void update_from_device(const fujitsu_general::airstage::h::ZoneConfig& data);
@@ -241,10 +242,6 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         static constexpr fujitsu_general::airstage::h::ModeEnum climate_mode_to_mode(climate::ClimateMode mode) noexcept;
         static constexpr fujitsu_general::airstage::h::FanSpeedEnum climate_fan_mode_to_fan_speed(climate::ClimateFanMode fan_speed) noexcept;
         static constexpr std::pair<bool, bool> climate_swing_mode_to_swing_mode(climate::ClimateSwingMode swing_mode) noexcept;
-
-        static constexpr uint8_t uart_data_bits_to_uart_config_data_bits(uart_word_length_t bits) noexcept;
-        static constexpr uint8_t uart_stop_bits_to_uart_config_stop_bits(uart_stop_bits_t bits) noexcept;
-        static constexpr uart::UARTParityOptions uart_parity_to_uart_config_parity(uart_parity_t parity) noexcept;
 };
 
 // Feature entities created in python only when declared, parented to the controller
