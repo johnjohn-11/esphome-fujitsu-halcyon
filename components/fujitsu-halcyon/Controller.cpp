@@ -61,6 +61,12 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
     // Parse buffer
     Packet packet(buffer);
 
+    // Our own address as source can only be the transceiver echoing our transmission.
+    // The ESP8266 UART receives that echo. On ESP32 the RS485 half-duplex mode already
+    // suppresses it, so this never matches there unless two controllers share an address.
+    if (packet.SourceType == AddressTypeEnum::Controller && packet.SourceAddress == this->controller_address)
+        return;
+
     // Save token destination
     if (this->initialization_stage == InitializationStageEnum::FindNextControllerRx) {
         // Controller with address > configured did not transmit
