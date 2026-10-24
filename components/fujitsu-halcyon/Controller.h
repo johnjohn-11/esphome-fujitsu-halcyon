@@ -4,21 +4,9 @@
 #include <functional>
 #include <queue>
 
-#include <driver/uart.h>
-
 #include "Packet.h"
 
 namespace fujitsu_general::airstage::h {
-
-constexpr uart_config_t UARTConfig = {
-    .baud_rate = 500,
-    .data_bits = UART_DATA_8_BITS,
-    .parity    = UART_PARITY_EVEN,
-    .stop_bits = UART_STOP_BITS_1,
-    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-    .rx_flow_ctrl_thresh = 0,
-    .source_clk = UART_SCLK_DEFAULT,
-};
 
 constexpr uint8_t UARTInterPacketSymbolSpacing = 2;
 
@@ -129,6 +117,7 @@ class Controller {
         }
 
         void process_uart_data();
+        void process_packet(const Packet::Buffer& buffer, bool lastPacketOnWire = true);
         bool is_initialized() const { return this->initialization_stage == InitializationStageEnum::Complete; }
         void reinitialize() { this->set_initialization_stage(InitializationStageEnum::DetectFeatureSupport); }
         InitializationStageEnum get_initialization_stage() const { return this->initialization_stage; }
@@ -176,7 +165,6 @@ class Controller {
 
         bool is_primary_controller() const { return this->controller_address == PrimaryAddress; }
         void set_initialization_stage(const InitializationStageEnum stage);
-        void process_packet(const Packet::Buffer& buffer, bool lastPacketOnWire = true);
 
     private:
         uint8_t controller_address;

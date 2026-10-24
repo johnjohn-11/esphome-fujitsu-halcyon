@@ -7,7 +7,9 @@
 #include <type_traits>
 
 #include <esphome/core/helpers.h>
+#if defined(USE_ESP32)
 #include <soc/uart_reg.h>
+#endif
 
 namespace esphome::fujitsu_general_airstage_h_controller {
 
@@ -50,8 +52,34 @@ static void format_stage(char* buf, size_t size, fujitsu_general::airstage::h::I
     std::snprintf(buf, size, "%s (%u/%u)", label, index, static_cast<stage_t>(InitializationStageEnum::Complete));
 }
 
+#if defined(USE_ESP8266)
+// One 8E1 character at 500 baud, rounded up.
+static constexpr uint32_t SYMBOL_TIME_MS = 22;
+#endif
+
 void FujitsuHalcyonController::loop() {
+#if defined(USE_ESP32)
     this->controller->process_uart_data();
+#else
+    // Without the ESP32 rx_timeout, bytes arrive one at a time. A frame is handled as
+    // soon as its last byte is in, because the reply to a token must start within
+    // about 40 ms. A partial frame followed by an inter-packet gap is out of sync and dropped.
+    while (this->available()) {
+        this->read_byte(&this->rx_buffer_[this->rx_length_++]);
+        this->rx_last_ms_ = millis();
+        if (this->rx_length_ == this->rx_buffer_.size()) {
+            this->rx_length_ = 0;
+            this->received_bytes_ = true;
+            this->log_buffer("RX", this->rx_buffer_.data(), this->rx_buffer_.size());
+            this->controller->process_packet(this->rx_buffer_, this->available() == 0);
+        }
+    }
+
+    if (this->rx_length_ && millis() - this->rx_last_ms_ >= fujitsu_general::airstage::h::UARTInterPacketSymbolSpacing * SYMBOL_TIME_MS) {
+        ESP_LOGW(TAG, "Discarded %zu bytes", this->rx_length_);
+        this->rx_length_ = 0;
+    }
+#endif
     this->check_sensor_timeout_();
     this->check_init_timeout_();
 }
@@ -125,6 +153,7 @@ void FujitsuHalcyonController::check_sensor_timeout_() {
 }
 
 void FujitsuHalcyonController::setup() {
+#if defined(USE_ESP32)
     const auto uart_num = static_cast<uart_port_t>(static_cast<uart::IDFUARTComponent*>(this->parent_)->get_hw_serial_number());
 
     // Currently no way to do this in IDFUARTComponent YAML configuration without setting the flow control pin.
@@ -142,6 +171,10 @@ void FujitsuHalcyonController::setup() {
     // drop this component from the token ring after the initial handshake.
     // Reported upstream in espressif/esp-idf#12568, fix proposed in #12569, not merged.
     REG_CLR_BIT(UART_RS485_CONF_REG(uart_num), UART_DL0_EN_M | UART_DL1_EN_M);
+#else
+    // The default loop interval alone would use up most of the reply window.
+    this->high_freq_.start();
+#endif
 
     this->controller = new fujitsu_general::airstage::h::Controller(
         this->controller_address_,

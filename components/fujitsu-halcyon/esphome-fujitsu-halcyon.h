@@ -14,7 +14,9 @@
 #include <esphome/components/switch/switch.h>
 #include <esphome/components/text_sensor/text_sensor.h>
 #include <esphome/components/uart/uart.h>
+#if defined(USE_ESP32)
 #include <esphome/components/uart/uart_component_esp_idf.h>
+#endif
 
 #if defined(USE_TZSP)
 #include <esphome/components/tzsp/tzsp.h>
@@ -165,6 +167,12 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         // with no features and no control until someone presses Reinitialize.
         uint32_t init_timeout_ms_{0};
         uint32_t init_started_ms_{0};
+#if defined(USE_ESP8266)
+        HighFrequencyLoopRequester high_freq_;
+        fujitsu_general::airstage::h::Packet::Buffer rx_buffer_{};
+        size_t rx_length_{0};
+        uint32_t rx_last_ms_{0};
+#endif
         uint8_t init_attempts_{0};
         void check_init_timeout_();
 

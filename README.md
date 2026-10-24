@@ -97,6 +97,24 @@ climate:
 
 This basic configuration exposes the climate control and the core diagnostics. To add the optional feature entities (filter, louvers, zones, use sensor, remote temperature), declare them as shown in [Home Assistant entities](#home-assistant-entities).
 
+### ESP8266
+
+ESP8266 boards are supported on the hardware UART0 only: `tx_pin: GPIO1` with `rx_pin: GPIO3`, or `tx_pin: GPIO15` with `rx_pin: GPIO13`. Free UART0 from the logger. TZSP is ESP32 only.
+
+```yaml
+esp8266:
+  board: esp01_1m  # Device dependent
+
+logger:
+  baud_rate: 0
+
+uart:
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 500
+  parity: EVEN
+```
+
 ## Reporting temperature and humidity from Home Assistant
 
 You can use ESPHome (or Home Assistant) sensors to report the current temperature and humidity to the Home Assistant climate component.
@@ -304,7 +322,7 @@ Ensure `tx_pin` is configured correctly. If it is not, another component on the 
 
 ## Debugging / Examining protocol
 
-Configure TZSP and use Wireshark with [fujitsu-airstage-h-dissector](https://github.com/Omniflux/fujitsu-airstage-h-dissector) to debug / decode the Fujitsu serial protocol.
+Configure TZSP (ESP32 only) and use Wireshark with [fujitsu-airstage-h-dissector](https://github.com/Omniflux/fujitsu-airstage-h-dissector) to debug / decode the Fujitsu serial protocol.
 
 ## Related projects
 - FOSV's [Fuji-Atom-Interface](https://github.com/FOSV/Fuji-Atom-Interface) - Open hardware interface compatible with this component

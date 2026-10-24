@@ -311,14 +311,14 @@ def _validate_use_sensor(config):
 CONFIG_SCHEMA = cv.All(_default_sensor_stale, CONFIG_SCHEMA, _validate_use_sensor)
 
 def check_platform(config):
-    # This component relies on the ESP-IDF RS485 half-duplex UART driver
-    # (uart_set_mode / driver/uart.h), so it only builds for ESP32 + esp-idf.
-    # Fail early with a clear message instead of a wall of compiler errors.
+    # On ESP32 this component relies on the ESP-IDF RS485 half-duplex UART driver
+    # (uart_set_mode / driver/uart.h). Fail early with a clear message instead of a
+    # wall of compiler errors.
+    if CORE.is_esp8266:
+        return config
+
     if not CORE.is_esp32:
-        raise cv.Invalid(
-            f"Component {COMPONENT_NAME} only supports the ESP32 platform "
-            "(it uses the ESP-IDF RS485 half-duplex UART driver)."
-        )
+        raise cv.Invalid(f"Component {COMPONENT_NAME} only supports the ESP32 and ESP8266 platforms.")
 
     if CORE.target_framework != "esp-idf":
         raise cv.Invalid(
@@ -328,7 +328,42 @@ def check_platform(config):
 
     return config
 
+def final_validate_esp8266_uart(config):
+    if not CORE.is_esp8266:
+        return config
+
+    full_config = fv.full_config.get()
+    uart_conf = full_config.get_config_for_path(full_config.get_path_for_id(config[CONF_UART_ID])[:-1])
+
+    # Other pins fall back to the ESP8266 software UART, which at 500 baud keeps
+    # interrupts disabled for about 22 ms per transmitted byte and receives each byte
+    # inside its interrupt handler. That does not survive this continuously busy bus.
+    if TZSP_AVAILABLE and config.get(tzsp.CONF_TZSP):
+        raise cv.Invalid("tzsp is not supported on ESP8266", path=[tzsp.CONF_TZSP])
+
+    pins = tuple(uart_conf.get(pin, {}).get("number") for pin in (uart.CONF_TX_PIN, uart.CONF_RX_PIN))
+    if pins not in ((1, 3), (15, 13)):
+        raise cv.Invalid(
+            f"Component {COMPONENT_NAME} on ESP8266 needs the hardware UART0: "
+            "tx_pin GPIO1 with rx_pin GPIO3, or tx_pin GPIO15 with rx_pin GPIO13",
+            path=[CONF_UART_ID]
+        )
+
+    logger_conf = full_config.get("logger", {})
+    if logger_conf.get("baud_rate", 0) != 0 and logger_conf.get("hardware_uart", "UART0") in ("UART0", "UART0_SWAP"):
+        raise cv.Invalid(
+            f"Component {COMPONENT_NAME} on ESP8266 uses UART0, which the logger also uses. "
+            "Set logger baud_rate: 0, or logger hardware_uart: UART1",
+            path=[CONF_UART_ID]
+        )
+
+    return config
+
 def final_validate_uart_schema(config):
+    # rx_full_threshold and rx_timeout are ESP32 only.
+    if not CORE.is_esp32:
+        return config
+
     def validate_rx_full_threshold(value):
         if not isinstance(value, int) or value < PACKET_FRAME_SIZE * 2:
             raise cv.Invalid(f"Component {COMPONENT_NAME} requires {uart.CONF_RX_FULL_THRESHOLD} >= {PACKET_FRAME_SIZE * 2}  for the uart referenced by {CONF_UART_ID}")
@@ -363,6 +398,7 @@ def final_validate_uart_schema(config):
 FINAL_VALIDATE_SCHEMA = cv.All(
     cv.require_esphome_version(2026, 3, 0),
     check_platform,
+    final_validate_esp8266_uart,
     final_validate_uart_schema,
     uart.final_validate_device_schema(
         COMPONENT_NAME,

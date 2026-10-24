@@ -37,7 +37,7 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: ${{ runner.os }}-${{ matrix.esphome.name }}-pio-${{ hashFiles('tests/test.yaml') }}
+          key: ${{ runner.os }}-${{ matrix.esphome.name }}-pio-${{ hashFiles('tests/*.yaml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.esphome.name }}-pio-
 
@@ -49,3 +49,6 @@ jobs:
 
       - name: Compile the test configuration
         run: esphome compile tests/test.yaml
+
+      - name: Compile the ESP8266 test configuration
+        run: esphome compile tests/test-esp8266.yaml
