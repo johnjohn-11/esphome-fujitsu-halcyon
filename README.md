@@ -10,6 +10,32 @@ An ESPHome component to control Fujitsu AirStage-H (product line previously know
 > [!IMPORTANT]
 > Requires ESPHome 2026.3.0 or newer.
 
+## Compatibility
+
+This component talks to the indoor unit over the three-wire (RWB) bus used by Fujitsu wired wall controllers such as the UTY-RNNUM or AR-WDD1E. If your unit has, or can take, one of these controllers, it uses this bus. Units sold under other brands (General, Fuji, Westinghouse) can use the same bus.
+
+## Hardware
+
+The ESP needs a LIN transceiver between its UART and the bus. The wall controller terminals are:
+
+| Wire | Signal |
+|---|---|
+| Red | +12 V |
+| Black | Ground |
+| White | Data |
+
+The MCP2025 used by the original designs is no longer sold. The [MCP2021 interface](https://github.com/AndrewBoyHUN/AndrewBoys-Fujitsu-AC-3-Wire-for-ESPHome-with-MCP2021) listed under [Related projects](#related-projects) works with this component.
+
+## Controller address
+
+Each controller on the bus has a unique address, starting at `0` with no gaps. Fujitsu documents at most two controllers, `0` (primary) and `1` (secondary).
+
+| Your installation | `controller_address` |
+|---|---|
+| No wired wall controller | `0` |
+| One wired wall controller | `1`, and set the wall controller to allow a second controller (on the UTY-RNNUM, DIP switch 1 "dual remote controller" ON) |
+| Two wired wall controllers | Not supported by Fujitsu, remove one |
+
 ## Basic configuration
 
 ```yaml
@@ -66,10 +92,8 @@ climate:
 - platform: fujitsu-halcyon
   name: None  # Use device friendly_name
 
-  # Fujitsu devices use 0 and 1, but 2-15 should also work. Must not skip addresses.
-  # Use 0 if this ESP is the only controller on the bus. Use 1 (or the next free
-  # address) if a wired wall controller is installed, since it takes 0.
-  controller_address: 1  # 0=Primary, 1=Secondary
+  # 0 if there is no wired wall controller, 1 if there is one. See Controller address.
+  controller_address: 0
   #temperature_controller_address: 0  # Fujitsu controller address to read temperature from
 
   #temperature_sensor_id: my_temperature_sensor  # ESPHome sensor to read temperature from
@@ -276,6 +300,18 @@ Ensure `controller_address` is configured correctly and, if `controller_address`
 
 You may want to temporarily disconnect the OEM remote controls and connect only this component with `controller_address: 0` to test without the registration window restriction.
 
+### Home Assistant shows the state but cannot change it
+
+Look for `TX:` lines in the log. If there are none, the component is not getting the transmit token. Check, in order:
+
+- `controller_address` matches your installation, see [Controller address](#controller-address). Without a wired wall controller it must be `0`.
+- With a wired wall controller, it is set to accept a second controller (DIP switch on the controller).
+- The ESP was powered on before, or together with, the wall controller, see [Verify transmitting data](#verify-transmitting-data).
+
+### UART parity errors
+
+Parity errors in the log mean the received bytes are corrupted. Check that the `uart:` block has `baud_rate: 500` and `parity: EVEN`, then check the wiring between the transceiver and the bus.
+
 ### Initialization does not complete
 
 The **Initialization Stage** sensor shows where the sequence is. It normally reaches `Complete (7/7)` within a few seconds of the first received packet. A missed packet during startup, or a power glitch that reboots the ESP in the middle of the sequence, can leave it stuck at an earlier stage, with **Supported Features** empty and no control from Home Assistant.
@@ -298,7 +334,7 @@ climate:
 
 ### OEM controller displays an error
 
-Ensure `controller_address` is configured correctly. Each address must be unique in a system. If you already have a hardwired OEM controller connected, it will be configured as address `0`. If you have two, they will be addresses `0` and `1`. This component must be configured as the next available address.
+Ensure `controller_address` is configured correctly, see [Controller address](#controller-address).
 
 Ensure `tx_pin` is configured correctly. If it is not, another component on the ESP device could be transmitting on the remote control bus, disrupting normal communications.
 
