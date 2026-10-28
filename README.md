@@ -248,7 +248,7 @@ climate:
 
 ## Troubleshooting
 
-View the ESPHome log for the device.
+View the ESPHome log for the device. The bus frames below are logged at `VERBOSE`, so set `logger: level: VERBOSE` while troubleshooting.
 
 ### Verify receiving data
 
