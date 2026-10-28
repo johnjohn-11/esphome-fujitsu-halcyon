@@ -177,19 +177,19 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_SUPPORTED_FAN_MODES): cv.ensure_list(cv.one_of(*ALLOWED_FAN_MODES, upper=True)),
         cv.Optional(CONF_SUPPORTED_SWING_MODES): cv.ensure_list(cv.one_of(*ALLOWED_SWING_MODES, upper=True)),
         cv.Optional(CONF_SUPPORTED_FEATURES): cv.ensure_list(cv.one_of(*ALLOWED_FEATURES, upper=True)),
-        cv.Optional(CONF_FUNCTION, default={CONF_NAME: "Function", CONF_MODE: "BOX"}): number.number_schema(
+        cv.Optional(CONF_FUNCTION, default={CONF_NAME: "Function", CONF_MODE: "BOX", CONF_DISABLED_BY_DEFAULT: True}): number.number_schema(
             FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_FUNCTION_VALUE, default={CONF_NAME: "Function Value", CONF_MODE: "BOX"}): number.number_schema(
+        cv.Optional(CONF_FUNCTION_VALUE, default={CONF_NAME: "Function Value", CONF_MODE: "BOX", CONF_DISABLED_BY_DEFAULT: True}): number.number_schema(
             FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_FUNCTION_UNIT, default={CONF_NAME: "Function Unit", CONF_MODE: "BOX"}): number.number_schema(
+        cv.Optional(CONF_FUNCTION_UNIT, default={CONF_NAME: "Function Unit", CONF_MODE: "BOX", CONF_DISABLED_BY_DEFAULT: True}): number.number_schema(
             FunctionNumber,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
-        cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function Read"}): button.button_schema(
+        cv.Optional(CONF_GET_FUNCTION, default={CONF_NAME: "Function Read", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             GetFunctionButton,
             entity_category=ENTITY_CATEGORY_CONFIG
         ),
@@ -223,7 +223,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         cv.Optional(CONF_ERROR_CODE, default={CONF_NAME: "Error Code"}): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
-        cv.Optional(CONF_INITIALIZATION_STAGE, default={CONF_NAME: "Initialization Stage"}): text_sensor.text_sensor_schema(
+        cv.Optional(CONF_INITIALIZATION_STAGE, default={CONF_NAME: "Initialization Stage", CONF_DISABLED_BY_DEFAULT: True}): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         cv.Optional(CONF_ADVANCE_VERTICAL_LOUVER): _feature_entity(button.button_schema(
@@ -240,7 +240,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
         ), "Filter Timer Expired"),
-        cv.Optional(CONF_REINITIALIZE, default={CONF_NAME: "Reinitialize"}): button.button_schema(
+        cv.Optional(CONF_REINITIALIZE, default={CONF_NAME: "Reinitialize", CONF_DISABLED_BY_DEFAULT: True}): button.button_schema(
             ReinitializeButton,
             entity_category=ENTITY_CATEGORY_CONFIG,
         ),
@@ -252,7 +252,7 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
             device_class=DEVICE_CLASS_PROBLEM
         ),
-        cv.Optional(CONF_REPORTED_FEATURES, default={CONF_NAME: "Supported Features"}): text_sensor.text_sensor_schema(
+        cv.Optional(CONF_REPORTED_FEATURES, default={CONF_NAME: "Supported Features", CONF_DISABLED_BY_DEFAULT: True}): text_sensor.text_sensor_schema(
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC
         ),
         **{

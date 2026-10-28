@@ -209,8 +209,8 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Standby Mode | Binary sensor | Enabled | Active during defrost, oil recovery, or multi-unit synchronization |
 | Error | Binary sensor | Enabled | Indicates an active fault on the indoor unit |
 | Error Code | Text sensor | Enabled | Fault code in `AA BB.CCC` (unit address + error code + extended error code) |
-| Initialization Stage | Text sensor | Enabled | Current initialization progress with a label, for example `Complete (7/7)` |
-| Supported Features | Text sensor | Enabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones` |
+| Initialization Stage | Text sensor | Disabled | Current initialization progress with a label, for example `Complete (7/7)` |
+| Supported Features | Text sensor | Disabled | List of features reported by the indoor unit, published once at initialization. Example: `Mode: Auto Heat Cool Dry Fan \| Fan: Auto High Medium Low Quiet \| Economy \| Sensor Switching \| Vertical Louvers \| Horizontal Louvers \| Zones` |
 | Temperature Sensor Stale | Binary sensor | Enabled, with `use_sensor` | On when no valid reading has arrived from `temperature_sensor_id` for `sensor_timeout`, which is when the unit goes back to its own sensor |
 | Remote Temperature Sensor | Sensor | If declared | Temperature reported by another controller on the bus (see `temperature_controller_address`) |
 | Filter Timer Expired | Binary sensor | If declared | Set when the filter maintenance timer has elapsed |
@@ -222,9 +222,9 @@ If you declare a feature entity that the indoor unit does not actually report, t
 | Reset Filter Timer | Button | If declared | Reset the filter maintenance timer |
 | Advance Vertical Louver | Button | If declared | Step the vertical louver to the next position |
 | Advance Horizontal Louver | Button | If declared | Step the horizontal louver to the next position |
-| Reinitialize | Button | Enabled | Re-run the initialization sequence without rebooting. This also happens automatically, see `init_timeout` under [Troubleshooting](#initialization-does-not-complete) |
-| Function / Function Value / Function Unit | Number | Enabled | Raw function register access |
-| Function Read / Function Write | Button | Enabled / Disabled | Trigger a function register read or write |
+| Reinitialize | Button | Disabled | Re-run the initialization sequence without rebooting. This also happens automatically, see `init_timeout` under [Troubleshooting](#initialization-does-not-complete) |
+| Function / Function Value / Function Unit | Number | Disabled | Raw function register access |
+| Function Read / Function Write | Button | Disabled | Trigger a function register read or write |
 | Zone `#` | Switch | If declared | Enable/Disable zone `#` |
 | Zone Group Day | Switch | If declared | Enable/Disable zone group Day |
 | Zone Group Night | Switch | If declared | Enable/Disable zone group Night |
