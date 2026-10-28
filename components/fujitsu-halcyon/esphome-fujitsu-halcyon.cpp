@@ -431,7 +431,7 @@ void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, s
 
     char pretty_buf[esphome::format_hex_pretty_size(fujitsu_general::airstage::h::Packet::FrameSize)];
     esphome::format_hex_pretty_to(pretty_buf, tbuf, ' ');
-    ESP_LOGD(TAG, "%s: %s", dir, pretty_buf);
+    ESP_LOGV(TAG, "%s: %s", dir, pretty_buf);
 }
 
 void FujitsuHalcyonController::dump_config() {
