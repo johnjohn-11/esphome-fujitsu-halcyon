@@ -615,8 +615,6 @@ void FujitsuHalcyonController::control(const climate::ClimateCall& call) {
         this->controller->set_horizontal_swing(swing_mode.first, this->ignore_lock_);
         this->controller->set_vertical_swing(swing_mode.second, this->ignore_lock_);
     }
-
-    this->publish_state();
 }
 
 void FujitsuHalcyonController::update_from_device(const fujitsu_general::airstage::h::Config& data) {
