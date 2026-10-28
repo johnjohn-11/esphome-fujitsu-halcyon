@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <type_traits>
 
@@ -178,6 +179,12 @@ void FujitsuHalcyonController::setup() {
     this->controller->set_features(this->features_override_);
     this->controller->set_autoconf(this->autoconf_);
 
+    this->features_pref_ = global_preferences->make_preference<fujitsu_general::airstage::h::Features>(
+        fnv1_hash("fujitsu_halcyon_features") ^ this->controller_address_);
+    fujitsu_general::airstage::h::Features saved;
+    if (this->features_pref_.load(&saved))
+        this->saved_features_ = saved;
+
     this->connected_sensor_->publish_initial_state(false);
     if (this->sensor_stale_sensor_ != nullptr)
         this->sensor_stale_sensor_->publish_initial_state(false);
@@ -317,6 +324,16 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
     // entity only exists when it was declared in YAML, so each publish below is
     // guarded by both the feature flag and a null check.
     auto& features = this->controller->get_features();
+
+    if (!this->features_known_) {
+        this->features_known_ = true;
+        if (!this->saved_features_.has_value() || std::memcmp(&*this->saved_features_, &features, sizeof(features)) != 0) {
+            this->features_pref_.save(&features);
+            if (this->saved_features_.has_value())
+                ESP_LOGW(TAG, "Unit features changed since the last boot, reconnect Home Assistant to this device to update the climate entity");
+            this->saved_features_ = features;
+        }
+    }
 
     // Publish supported features as a human-readable diagnostic string.
     {
@@ -502,7 +519,7 @@ climate::ClimateTraits FujitsuHalcyonController::traits() {
     if (this->controller == nullptr)
         return traits;
 
-    auto& features = this->controller->get_features();
+    auto& features = !this->features_known_ && this->saved_features_.has_value() ? *this->saved_features_ : this->controller->get_features();
 
     // Current temperature. A source exists if an external sensor is configured,
     // or if we read temperature from a different controller on the bus.

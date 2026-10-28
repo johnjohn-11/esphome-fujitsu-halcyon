@@ -6,6 +6,7 @@
 
 #include <esphome/core/component.h>
 #include <esphome/core/helpers.h>
+#include <esphome/core/preferences.h>
 #include <esphome/components/binary_sensor/binary_sensor.h>
 #include <esphome/components/button/button.h>
 #include <esphome/components/climate/climate.h>
@@ -221,6 +222,13 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         bool sensor_usable_() const { return this->temperature_valid_ && !this->temperature_stale_; }
         bool apply_use_sensor_();
         void check_sensor_timeout_();
+
+        // Home Assistant reads the climate traits once, when it connects, which can
+        // be before the unit has reported its features. The last reported features
+        // are saved to flash and used by traits() until this boot's are known.
+        ESPPreferenceObject features_pref_;
+        optional<fujitsu_general::airstage::h::Features> saved_features_{};
+        bool features_known_{false};
 
     private:
         // Initialized in setup(). Stays nullptr if setup() bails out early (e.g.
