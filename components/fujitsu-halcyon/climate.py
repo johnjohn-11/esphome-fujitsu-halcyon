@@ -258,7 +258,6 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         **{
             cv.Optional(key): _feature_entity(switch.switch_schema(
                 ZoneSwitch,
-                entity_category=ENTITY_CATEGORY_CONFIG,
                 # Zone state comes from the indoor unit, nothing to restore.
                 default_restore_mode="DISABLED"
             ), f"Zone {i}")
@@ -266,12 +265,10 @@ CONFIG_SCHEMA = climate.climate_schema(FujitsuHalcyonController).extend(
         },
         cv.Optional(CONF_ZONE_GROUP_DAY): _feature_entity(switch.switch_schema(
             ZoneGroupDaySwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="DISABLED"
         ), "Zone Group Day"),
         cv.Optional(CONF_ZONE_GROUP_NIGHT): _feature_entity(switch.switch_schema(
             ZoneGroupNightSwitch,
-            entity_category=ENTITY_CATEGORY_CONFIG,
             default_restore_mode="DISABLED"
         ), "Zone Group Night"),
     }
