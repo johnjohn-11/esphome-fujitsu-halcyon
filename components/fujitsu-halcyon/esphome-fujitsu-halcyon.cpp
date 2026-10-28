@@ -116,6 +116,12 @@ void FujitsuHalcyonController::check_sensor_timeout_() {
     if (this->sensor_stale_sensor_ != nullptr)
         this->sensor_stale_sensor_->publish_state(true);
 
+    // Show the temperature as unknown rather than the last reading as if it were current.
+    if (!std::isnan(this->current_temperature)) {
+        this->current_temperature = NAN;
+        this->publish_state();
+    }
+
     if (this->use_sensor_switch_ != nullptr && this->use_sensor_switch_->state) {
         ESP_LOGW(TAG, "No valid reading from the temperature sensor for %u s, the unit uses its own sensor until readings resume",
             static_cast<unsigned>(this->sensor_timeout_ms_ / 1000));
