@@ -99,6 +99,7 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
                     error_flag_changed = true;
 
                 this->last_error_flag = packet.Config.IndoorUnit.Error;
+                this->confirm_writes(packet.Config);
                 this->current_configuration = packet.Config;
 
                 // Include the state of these fields not returned from the Indoor Unit in the callback data
@@ -262,6 +263,19 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
 
                 if (this->configuration_changes[SettableFields::Maintenance])
                     tx_packet.Config.Controller.Maintenance = this->changed_configuration.Controller.Maintenance;
+
+                // Only these fields come back in the indoor unit's Config packet, so only they can be confirmed.
+                static const std::bitset<SettableFields::MAX> echoed_fields{
+                    (1u << SettableFields::Enabled) | (1u << SettableFields::Economy) |
+                    (1u << SettableFields::Setpoint) | (1u << SettableFields::Mode) |
+                    (1u << SettableFields::FanSpeed) | (1u << SettableFields::SwingVertical) |
+                    (1u << SettableFields::SwingHorizontal)};
+                this->unconfirmed_changes |= this->configuration_changes & echoed_fields;
+
+                ESP_LOGD(TAG, "Write sent (attempt %u): enabled %u, mode %u, setpoint %u, fan %u",
+                         this->write_attempts + 1, tx_packet.Config.Enabled,
+                         static_cast<unsigned>(tx_packet.Config.Mode), tx_packet.Config.Setpoint,
+                         static_cast<unsigned>(tx_packet.Config.FanSpeed));
             }
 
             this->configuration_changes.reset();
@@ -288,6 +302,39 @@ void Controller::process_packet(const Packet::Buffer& buffer, bool lastPacketOnW
     // Have now (hopefully) transmitted on time so call pending callback
     if (deferred_callback) {
         deferred_callback();
+    }
+}
+
+void Controller::confirm_writes(const struct Config& received) {
+    if (this->unconfirmed_changes.none())
+        return;
+
+    const auto& wanted = this->changed_configuration;
+    auto check = [&](size_t field, bool echoed) {
+        if (this->unconfirmed_changes[field] && echoed)
+            this->unconfirmed_changes[field] = false;
+    };
+    check(SettableFields::Enabled, received.Enabled == wanted.Enabled);
+    check(SettableFields::Economy, received.Economy == wanted.Economy);
+    check(SettableFields::Setpoint, received.Setpoint == wanted.Setpoint);
+    check(SettableFields::Mode, received.Mode == wanted.Mode);
+    check(SettableFields::FanSpeed, received.FanSpeed == wanted.FanSpeed);
+    check(SettableFields::SwingVertical, received.SwingVertical == wanted.SwingVertical);
+    check(SettableFields::SwingHorizontal, received.SwingHorizontal == wanted.SwingHorizontal);
+
+    if (this->unconfirmed_changes.none()) {
+        ESP_LOGD(TAG, "Write confirmed by the indoor unit after %u attempt(s)", this->write_attempts + 1);
+        this->write_attempts = 0;
+    } else if (++this->write_attempts < MaxWriteAttempts) {
+        ESP_LOGW(TAG, "Indoor unit did not apply the write (fields 0x%03lx, setpoint %u, wanted %u), sending it again",
+                 this->unconfirmed_changes.to_ulong(), received.Setpoint, wanted.Setpoint);
+        this->configuration_changes |= this->unconfirmed_changes;
+        this->unconfirmed_changes.reset();
+    } else {
+        ESP_LOGW(TAG, "Indoor unit ignored the write %u times (fields 0x%03lx), giving up",
+                 MaxWriteAttempts, this->unconfirmed_changes.to_ulong());
+        this->unconfirmed_changes.reset();
+        this->write_attempts = 0;
     }
 }
 
