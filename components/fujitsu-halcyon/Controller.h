@@ -83,6 +83,9 @@ namespace SettableFields {
     };
 };
 
+// A write the indoor unit does not echo in its next Config packet is sent again, up to this many times in total.
+constexpr uint8_t MaxWriteAttempts = 3;
+
 namespace ZoneSettableFields {
     enum {
         Zone1Active,
@@ -177,6 +180,7 @@ class Controller {
         bool is_primary_controller() const { return this->controller_address == PrimaryAddress; }
         void set_initialization_stage(const InitializationStageEnum stage);
         void process_packet(const Packet::Buffer& buffer, bool lastPacketOnWire = true);
+        void confirm_writes(const struct Config& received);
 
     private:
         uint8_t controller_address;
@@ -191,6 +195,9 @@ class Controller {
         struct ZoneFunction::Zones zones = {};
 
         std::bitset<SettableFields::MAX> configuration_changes;
+        // Written fields the indoor unit has not yet echoed back, rewritten until it does.
+        std::bitset<SettableFields::MAX> unconfirmed_changes;
+        uint8_t write_attempts = 0;
         std::bitset<ZoneSettableFields::MAX> zone_configuration_changes;
 
         std::queue<struct Function> function_queue;
