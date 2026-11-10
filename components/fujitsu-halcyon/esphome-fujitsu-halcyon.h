@@ -158,6 +158,12 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         bool received_bytes_{false};
         bool transmitted_{false};
 
+        // A received frame is logged only after the reply to it is on the wire,
+        // so logging never delays the transmission.
+        fujitsu_general::airstage::h::Packet::Buffer pending_rx_{};
+        size_t pending_rx_length_{0};
+        void flush_rx_log_();
+
         // Initialization watchdog. If the sequence has not reached Complete within
         // init_timeout_ms_, and the unit has answered at least once, it is restarted
         // (same as the Reinitialize button). A missed packet during startup, or a glitch
