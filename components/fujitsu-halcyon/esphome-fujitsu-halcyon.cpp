@@ -52,6 +52,7 @@ static void format_stage(char* buf, size_t size, fujitsu_general::airstage::h::I
 
 void FujitsuHalcyonController::loop() {
     this->controller->process_uart_data();
+    this->flush_rx_log_();
     this->check_sensor_timeout_();
     this->check_init_timeout_();
 }
@@ -160,11 +161,14 @@ void FujitsuHalcyonController::setup() {
             .ReadBytes  = [this](uint8_t *buf, size_t length){
                 this->read_array(buf, length);
                 this->received_bytes_ = true;
-                this->log_buffer("RX", buf, length);
+                this->flush_rx_log_();
+                this->pending_rx_length_ = std::min(length, this->pending_rx_.size());
+                std::copy_n(buf, this->pending_rx_length_, this->pending_rx_.begin());
             },
             .WriteBytes = [this](const uint8_t *buf, size_t length){
                 this->transmitted_ = true;
                 this->write_array(buf, length);
+                this->flush_rx_log_();
                 this->log_buffer("TX", buf, length);
             }
         }
@@ -390,6 +394,14 @@ void FujitsuHalcyonController::on_initialization_stage(const fujitsu_general::ai
             ESP_LOGI(TAG, "Unit reports features with no declared entity. Add these keys under climate: to expose them:%s", undeclared);
         }
     }
+}
+
+void FujitsuHalcyonController::flush_rx_log_() {
+    if (this->pending_rx_length_ == 0)
+        return;
+
+    this->log_buffer("RX", this->pending_rx_.data(), this->pending_rx_length_);
+    this->pending_rx_length_ = 0;
 }
 
 void FujitsuHalcyonController::log_buffer(const char* dir, const uint8_t* buf, size_t length) {
