@@ -576,33 +576,45 @@ void FujitsuHalcyonController::control(const climate::ClimateCall& call) {
     using climate::ClimatePreset;
     using climate::ClimateSwingMode;
 
+    // The controller refuses a change when the unit is locked, does not support
+    // it, or the value is out of range. Nothing is sent to the unit in that case.
+    auto check = [](bool accepted, const char* what) {
+        if (!accepted) {
+            ESP_LOGW(TAG, "%s change refused (locked, unsupported or out of range), not sent to the unit", what);
+        }
+    };
+
     // Target temperature / Setpoint
     if (call.get_target_temperature().has_value())
-        this->controller->set_setpoint(std::lround(call.get_target_temperature().value()), this->ignore_lock_);
+        check(this->controller->set_setpoint(std::lround(call.get_target_temperature().value()), this->ignore_lock_), "Setpoint");
 
     // Economy mode
     if (call.get_preset().has_value())
-        this->controller->set_economy(call.get_preset().value() == ClimatePreset::CLIMATE_PRESET_ECO, this->ignore_lock_);
+        check(this->controller->set_economy(call.get_preset().value() == ClimatePreset::CLIMATE_PRESET_ECO, this->ignore_lock_), "Economy");
 
     // Fan mode / speed
     if (call.get_fan_mode().has_value())
-        this->controller->set_fan_speed(climate_fan_mode_to_fan_speed(call.get_fan_mode().value()), this->ignore_lock_);
+        check(this->controller->set_fan_speed(climate_fan_mode_to_fan_speed(call.get_fan_mode().value()), this->ignore_lock_), "Fan speed");
 
     // Mode / enabled
     if (call.get_mode().has_value()) {
         if (call.get_mode().value() == ClimateMode::CLIMATE_MODE_OFF)
-            this->controller->set_enabled(false, this->ignore_lock_);
+            check(this->controller->set_enabled(false, this->ignore_lock_), "Power");
         else {
-            this->controller->set_enabled(true, this->ignore_lock_);
-            this->controller->set_mode(climate_mode_to_mode(call.get_mode().value()), this->ignore_lock_);
+            check(this->controller->set_enabled(true, this->ignore_lock_), "Power");
+            check(this->controller->set_mode(climate_mode_to_mode(call.get_mode().value()), this->ignore_lock_), "Mode");
         }
     }
 
     // Swing mode
     if (call.get_swing_mode().has_value()) {
         const auto swing_mode = climate_swing_mode_to_swing_mode(call.get_swing_mode().value());
-        this->controller->set_horizontal_swing(swing_mode.first, this->ignore_lock_);
-        this->controller->set_vertical_swing(swing_mode.second, this->ignore_lock_);
+        // A unit with louvers on one axis only refuses the other axis even for
+        // "off", so only an axis being turned on is worth reporting.
+        const bool horizontal = this->controller->set_horizontal_swing(swing_mode.first, this->ignore_lock_);
+        const bool vertical = this->controller->set_vertical_swing(swing_mode.second, this->ignore_lock_);
+        check(horizontal || !swing_mode.first, "Horizontal swing");
+        check(vertical || !swing_mode.second, "Vertical swing");
     }
 
     this->publish_state();
