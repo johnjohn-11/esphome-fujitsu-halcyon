@@ -296,6 +296,23 @@ climate:
     init_timeout: 30s  # Optional, default 30s. 0s disables.
 ```
 
+### A change from Home Assistant is not applied
+
+If a setpoint, mode, fan or other change from Home Assistant does not take effect, look for one of these messages.
+
+```text
+Setpoint change refused (locked, unsupported or out of range), not sent to the unit
+```
+
+The component did not send the change. The unit or a wall controller has a lock set, the unit does not report that mode or fan speed, or the setpoint is outside 16 to 30 °C. Set `ignore_lock: true` to send changes despite a lock.
+
+```text
+Indoor unit did not apply the write (fields 0x008, setpoint 23, wanted 22), sending it again
+Indoor unit ignored the write 3 times (fields 0x008), giving up
+```
+
+The change was sent but the unit did not report it back. The component sends it again, up to three times in total. A change that succeeds logs `Write confirmed by the indoor unit after 1 attempt(s)` at debug level.
+
 ### OEM controller displays an error
 
 Ensure `controller_address` is configured correctly. Each address must be unique in a system. If you already have a hardwired OEM controller connected, it will be configured as address `0`. If you have two, they will be addresses `0` and `1`. This component must be configured as the next available address.
