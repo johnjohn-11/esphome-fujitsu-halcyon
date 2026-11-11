@@ -101,6 +101,11 @@ This basic configuration exposes the climate control and the core diagnostics. T
 
 ESP8266 boards are supported on the hardware UART0 only: `tx_pin: GPIO1` with `rx_pin: GPIO3`, or `tx_pin: GPIO15` with `rx_pin: GPIO13`. Free UART0 from the logger. TZSP is ESP32 only.
 
+Both pin pairs have a boot constraint, check your interface before choosing one:
+
+- GPIO1: the ESP8266 boot ROM prints its startup messages on this pin, at 74880 baud, so they reach the bus at every boot.
+- GPIO15: it must be low at boot. If the transceiver input pulls it high, the ESP8266 does not start.
+
 ```yaml
 esp8266:
   board: esp01_1m  # Device dependent
