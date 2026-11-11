@@ -63,10 +63,16 @@ void FujitsuHalcyonController::loop() {
 #else
     // Without the ESP32 rx_timeout, bytes arrive one at a time. A frame is handled as
     // soon as its last byte is in, because the reply to a token must start within
-    // about 40 ms. A partial frame followed by an inter-packet gap is out of sync and dropped.
+    // about 40 ms. Frames are only counted from a silence on the bus, so a start in
+    // the middle of a frame never assembles bytes of two frames into one.
     while (this->available()) {
-        this->read_byte(&this->rx_buffer_[this->rx_length_++]);
+        uint8_t byte;
+        this->read_byte(&byte);
         this->rx_last_ms_ = millis();
+        if (!this->rx_synced_)
+            continue;
+
+        this->rx_buffer_[this->rx_length_++] = byte;
         if (this->rx_length_ == this->rx_buffer_.size()) {
             this->rx_length_ = 0;
             this->received_bytes_ = true;
@@ -77,9 +83,13 @@ void FujitsuHalcyonController::loop() {
         }
     }
 
-    if (this->rx_length_ && millis() - this->rx_last_ms_ >= fujitsu_general::airstage::h::UARTInterPacketSymbolSpacing * SYMBOL_TIME_MS) {
-        ESP_LOGW(TAG, "Discarded %zu bytes", this->rx_length_);
-        this->rx_length_ = 0;
+    // Nothing waiting and no byte for two symbol times: the bus is between frames.
+    if (millis() - this->rx_last_ms_ >= fujitsu_general::airstage::h::UARTInterPacketSymbolSpacing * SYMBOL_TIME_MS) {
+        if (this->rx_length_) {
+            ESP_LOGW(TAG, "Discarded %zu bytes", this->rx_length_);
+            this->rx_length_ = 0;
+        }
+        this->rx_synced_ = true;
     }
 #endif
     this->flush_rx_log_();
@@ -177,6 +187,7 @@ void FujitsuHalcyonController::setup() {
 #else
     // The default loop interval alone would use up most of the reply window.
     this->high_freq_.start();
+    this->rx_last_ms_ = millis();
 #endif
 
     this->controller = new fujitsu_general::airstage::h::Controller(

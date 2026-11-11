@@ -178,6 +178,7 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         fujitsu_general::airstage::h::Packet::Buffer rx_buffer_{};
         size_t rx_length_{0};
         uint32_t rx_last_ms_{0};
+        bool rx_synced_{false};
 #endif
         uint8_t init_attempts_{0};
         void check_init_timeout_();
