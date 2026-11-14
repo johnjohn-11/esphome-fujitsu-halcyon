@@ -32,27 +32,30 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
 #endif
     public:
 
+        // The controller only exists once setup() has succeeded. The entity callbacks
+        // below can run before that, from an automation or a restored switch.
         // Called by the ReinitializeButton entity (created inline in python).
         // Also resets the initialization watchdog, see check_init_timeout_().
         void reinitialize() {
             this->init_started_ms_ = millis();
             this->init_attempts_ = 0;
-            this->controller->reinitialize();
+            if (this->controller != nullptr)
+                this->controller->reinitialize();
         }
         // How long initialization may take before the watchdog restarts it. 0 disables.
         void set_init_timeout(uint32_t timeout_ms) { this->init_timeout_ms_ = timeout_ms; }
         // Called by the ResetFilterButton entity (created inline in python, see climate.py).
-        void reset_filter() { this->controller->reset_filter(this->ignore_lock_); }
+        void reset_filter() { if (this->controller != nullptr) this->controller->reset_filter(this->ignore_lock_); }
         // Called by the AdvanceVerticalLouverButton / AdvanceHorizontalLouverButton
         // entities, created inline in python and parented to this controller.
-        void advance_vertical_louver() { this->controller->advance_vertical_louver(this->ignore_lock_); }
-        void advance_horizontal_louver() { this->controller->advance_horizontal_louver(this->ignore_lock_); }
+        void advance_vertical_louver() { if (this->controller != nullptr) this->controller->advance_vertical_louver(this->ignore_lock_); }
+        void advance_horizontal_louver() { if (this->controller != nullptr) this->controller->advance_horizontal_louver(this->ignore_lock_); }
         // The use_sensor switch is created inline in python and parented to this
         // controller. It calls use_sensor() to write, and set_use_sensor_switch()
         // gives the controller a pointer so it can publish the unit state back.
         // The switch state is the user's intent. What the unit actually receives
         // also depends on the external sensor being usable, see apply_use_sensor_().
-        bool use_sensor(bool state) { return this->controller->use_sensor(state && this->sensor_usable_(), this->ignore_lock_); }
+        bool use_sensor(bool state) { return this->controller != nullptr && this->controller->use_sensor(state && this->sensor_usable_(), this->ignore_lock_); }
         void set_use_sensor_switch(switch_::Switch* sw) { this->use_sensor_switch_ = sw; }
         // How long the external sensor may go without a valid reading before the
         // unit is switched back to its own sensor. 0 disables the check.
@@ -60,9 +63,9 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
 
         // Called by / set on the zone switches and the filter binary sensor, which are
         // created inline in python (switches parented, the sensor set through a pointer).
-        bool set_zone(uint8_t zone, bool state) { return this->controller->set_zone(zone, state, this->ignore_lock_); }
-        bool set_zone_group_day(bool state) { return this->controller->set_zone_group_day(state, this->ignore_lock_); }
-        bool set_zone_group_night(bool state) { return this->controller->set_zone_group_night(state, this->ignore_lock_); }
+        bool set_zone(uint8_t zone, bool state) { return this->controller != nullptr && this->controller->set_zone(zone, state, this->ignore_lock_); }
+        bool set_zone_group_day(bool state) { return this->controller != nullptr && this->controller->set_zone_group_day(state, this->ignore_lock_); }
+        bool set_zone_group_night(bool state) { return this->controller != nullptr && this->controller->set_zone_group_night(state, this->ignore_lock_); }
         void set_zone_switch(uint8_t i, switch_::Switch* sw) { this->zone_switches_[i] = sw; }
         void set_zone_group_day_switch(switch_::Switch* sw) { this->zone_group_day_switch_ = sw; }
         void set_zone_group_night_switch(switch_::Switch* sw) { this->zone_group_night_switch_ = sw; }
@@ -86,13 +89,13 @@ class FujitsuHalcyonController : public Component, public climate::Climate, publ
         void set_function_value_number(number::Number* n) { this->function_value_number_ = n; }
         void set_function_unit_number(number::Number* n) { this->function_unit_number_ = n; }
         void get_function() {
-            if (this->function_number_->has_state() && this->function_unit_number_->has_state()) {
+            if (this->controller != nullptr && this->function_number_->has_state() && this->function_unit_number_->has_state()) {
                 this->function_value_number_->publish_state(NAN);
                 this->controller->get_function(this->function_number_->state, this->function_unit_number_->state);
             }
         }
         void set_function() {
-            if (this->function_number_->has_state() && this->function_value_number_->has_state() && this->function_unit_number_->has_state())
+            if (this->controller != nullptr && this->function_number_->has_state() && this->function_value_number_->has_state() && this->function_unit_number_->has_state())
                 this->controller->set_function(this->function_number_->state, this->function_value_number_->state, this->function_unit_number_->state);
         }
 

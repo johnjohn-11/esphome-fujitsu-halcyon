@@ -587,6 +587,12 @@ void FujitsuHalcyonController::control(const climate::ClimateCall& call) {
     using climate::ClimatePreset;
     using climate::ClimateSwingMode;
 
+    // An automation or a restored switch can call this before setup().
+    if (this->controller == nullptr) {
+        ESP_LOGW(TAG, "Climate command ignored, the component is not set up");
+        return;
+    }
+
     // Target temperature / Setpoint
     if (call.get_target_temperature().has_value())
         this->controller->set_setpoint(std::lround(call.get_target_temperature().value()), this->ignore_lock_);
